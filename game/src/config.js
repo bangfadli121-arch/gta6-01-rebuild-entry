@@ -1,169 +1,85 @@
-// EMBER BAY — Heat Line: config.js
-// One job: every shared constant, the city layout, the story data and the
-// global game state. Every other module reads EB here, nothing else.
-window.EB = window.EB || {};
+// EMBER BAY — config: palette, city layout, missions, weapons, ranks.
+// All original. No Rockstar names, no real-world city.
+(function () {
+  var EB = window.EB || (window.EB = {});
 
-EB.GAME_NAME = "EMBER BAY — Heat Line";
-EB.SAVE_KEY = "emberbay-save-v1";
-EB.CITY_SIZE = 520;          // ground plane is CITY_SIZE x CITY_SIZE metres
-EB.ROAD_SPACING = 64;        // distance between road centrelines
-EB.BLOCK = 44;               // building block size inside a road cell
+  var PALETTE = {
+    teal: 0x2ec4b6, pink: 0xffb3a7, cream: 0xffe3a3, mint: 0x7ed957, sky: 0x7ec8e3,
+    sun: 0xffb347, sunset: 0xff7a3c, dusk: 0x3b2a6e, night: 0x1a0f2e,
+    asphalt: 0x2b2b33, sidewalk: 0xcfc8bd, grass: 0x69b34c, sand: 0xf2d8a0,
+    sea: 0x2fb3a3, seaDeep: 0x1d8a9e
+  };
 
-// v9: COOLED palette to match the top entries — the sky is bluer and
-// the hot magenta band is gone (warm peach haze at the horizon only),
-// the lawn is a softer green, the bay is brighter turquoise. The hero
-// car's orange stays the one hot accent in the frame.
-// v10: FIVE KEY COLOURS, used consistently everywhere (Brisa Bay
-// rule: teal / pink / cream-yellow / mint / sky blue) — buildings,
-// traffic and props all draw from this one set, so the city reads
-// pastel and coherent instead of a random rainbow.
-EB.COLORS = {
-  skyTop: 0x6fb0ec, skyMid: 0xf7b98e, skyBottom: 0xffab5e, fog: 0xffc49a,
-  sun: 0xffd166, ground: 0x69b96a, road: 0x35383f, sidewalk: 0xe8dcc0,
-  building: [0x2ec4b6, 0xffb3a7, 0xffe3a3, 0x7ed957, 0x7ec8e3],
-  palm: 0x2fbf5a, trunk: 0x8a5a2a, water: 0x1fd4e0,
-  minimapLand: 0xf2e3b8, minimapRoad: 0x1c2a4a, lampGlow: 0xffe9a8,
-};
+  // City grid: roads every 40 m, road half-width 5, sidewalk 3.
+  var GRID = { spacing: 40, min: -200, max: 200, roadHalf: 5, walkHalf: 8 };
 
-// Six districts, each with a centre, a colour for the minimap and a vibe.
-EB.DISTRICTS = [
-  { name: "Portside",     x: -160, z: -160, r: 105, color: "#29b6e8", blurb: "Docks, cranes and containers." },
-  { name: "Old Market",   x: 0,    z: -160, r: 100, color: "#ffb347", blurb: "Tight streets, stalls, old brick." },
-  { name: "Neon Row",     x: 160,  z: -160, r: 100, color: "#ff4ad9", blurb: "Signs, clubs and all-night neon." },
-  { name: "Palm Heights", x: -160, z: 120,  r: 105, color: "#3ed95a", blurb: "Hills, villas and palm avenues." },
-  { name: "Cinder Docks", x: 0,    z: 140,  r: 100, color: "#ff5a5a", blurb: "Warehouses — Rust Crew turf." },
-  { name: "Sunset Beach", x: 170,  z: 140,  r: 105, color: "#ffd23e", blurb: "Sand, surf and the Ember Crown." },
-];
+  var DISTRICTS = [
+    { name: "Portside", x0: -220, z0: -220, x1: -40, z1: -80, color: "#7ec8e3" },
+    { name: "Old Market", x0: -220, z0: -80, x1: -40, z1: 80, color: "#ffe3a3" },
+    { name: "Neon Row", x0: -40, z0: -120, x1: 80, z1: 80, color: "#ffb3a7" },
+    { name: "Palm Heights", x0: 80, z0: -220, x1: 210, z1: -40, color: "#7ed957" },
+    { name: "Cinder Docks", x0: -220, z0: 80, x1: 40, z1: 220, color: "#ff9a6e" },
+    { name: "Sunset Beach", x0: 40, z0: 40, x1: 220, z1: 220, color: "#ffd75e" }
+  ];
 
-// Respect ranks: name, respect needed to reach it, and the cash bonus.
-EB.RANKS = [
-  { name: "STREET RAT",  need: 0 },
-  { name: "HUSTLER",     need: 150 },
-  { name: "WHEELMAN",    need: 400 },
-  { name: "ENFORCER",    need: 800 },
-  { name: "KINGPIN",     need: 1400 },
-  { name: "EMBER KING",  need: 2200 },
-];
+  var STREET_NAMES = ["Coastal Rd", "Cinder Rd", "Neon Ave", "Palm Blvd", "Portside Way", "Ember St", "Market Ln", "Sunset Dr", "Dockside Rd", "Heat Line"];
 
-// The eight story missions. Positions are world coordinates; the mission
-// module turns each entry into live objectives.
-EB.MISSIONS = [
-  { id: 1, name: "First Wheels", short: "Steal your first car",
-    brief: "Mara: 'Kade, you walk in, you walk out a nobody. Take the blue coupe on Palm Ave.'",
-    objective: "Get in the blue coupe (walk to it, press E)", reward: 200, respect: 120 },
-  { id: 2, name: "Portside Pickup", short: "Pick up Mara at the docks",
-    brief: "Mara is waiting by the containers in Portside. Go get her — and don't keep her waiting.",
-    objective: "Drive to Mara at Portside", reward: 350, respect: 140 },
-  { id: 3, name: "Neon Row Nights", short: "Win the street race",
-    brief: "Dario: 'Four gates through Neon Row. Beat the Rust Crew's best driver. No brakes, no mercy.'",
-    objective: "Race through all 4 checkpoints in order", reward: 600, respect: 200 },
-  { id: 4, name: "Dockside Trouble", short: "Grab 3 crates, handle the Rust Crew",
-    brief: "Three crates in Cinder Docks. The Rust Crew guards them. Take the crates — deal with the crew however you like.",
-    objective: "Collect 3 crates in Cinder Docks", reward: 700, respect: 220 },
-  { id: 5, name: "Getaway Driver", short: "Lose the heat for 60 seconds",
-    brief: "The Bay PD is on you, 3 stars and climbing. Lose them. Sixty seconds clean and you're free.",
-    objective: "Survive 60s with the police on your tail", reward: 800, respect: 250 },
-  { id: 6, name: "Air One", short: "Escape the police helicopter",
-    brief: "Air One is overhead with a spotlight. Reach the hideout in Palm Heights before they box you in.",
-    objective: "Reach the Palm Heights hideout under the helicopter", reward: 900, respect: 280 },
-  { id: 7, name: "Cinder Run", short: "Three drops across the bay",
-    brief: "June: 'Three drops, three districts, one night. Portside, Neon Row, Old Market. Go.'",
-    objective: "Make all 3 drops in order", reward: 1000, respect: 300 },
-  { id: 8, name: "The Ember Crown", short: "Steal the Ember GT",
-    brief: "The Ember GT sits in Cinder Docks, guarded and gold. Take it, and drive it to Sunset Beach. That's the crown, Kade.",
-    objective: "Steal the Ember GT and drive it to Sunset Beach", reward: 2500, respect: 600 },
-];
+  var RANKS = [
+    { name: "STREET RAT", at: 0 }, { name: "HUSTLER", at: 100 }, { name: "WHEELMAN", at: 250 },
+    { name: "ENFORCER", at: 450 }, { name: "KINGPIN", at: 700 }, { name: "EMBER KING", at: 950 }
+  ];
 
-EB.WEAPONS = [
-  { name: "FISTS", damage: 12, rate: 2.2, range: 3.2,  spread: 0,    auto: false, unlockRespect: 0 },
-  { name: "P9 PISTOL", damage: 26, rate: 3.5, range: 55, spread: 0.012, auto: false, unlockRespect: 0 },
-  { name: "SMG", damage: 14, rate: 9, range: 45, spread: 0.05, auto: true, unlockRespect: 0 },
-  { name: "RIFLE", damage: 55, rate: 1.6, range: 90, spread: 0.004, auto: false, unlockRespect: 0 },
-  // v10: the 1-7 weapon bar shows these LOCKED from the start — they
-  // unlock at respect ranks, so the progression is visible before it
-  // is played (Brisa Bay shows its locked slots from minute one).
-  { name: "BAT", damage: 20, rate: 1.8, range: 3.5,  spread: 0,    auto: false, unlockRespect: 150 },
-  { name: "SHOTGUN", damage: 40, rate: 1.2, range: 30, spread: 0.12, auto: false, unlockRespect: 400 },
-  { name: "SNIPER", damage: 90, rate: 0.8, range: 120, spread: 0.001, auto: false, unlockRespect: 800 },
-];
+  var WEAPONS = [
+    { name: "FISTS", short: "FISTS", dmg: 12, rate: 3.2, range: 3, unlock: 0, desc: "Bare knuckles. Quiet, personal." },
+    { name: "P9 PISTOL", short: "P9 PISTOL", dmg: 22, rate: 2.6, range: 42, unlock: 0, desc: "Mara's old service piece." },
+    { name: "SMG", short: "SMG", dmg: 13, rate: 9, range: 36, unlock: 0, desc: "Spray and pray, Neon Row style." },
+    { name: "RIFLE", short: "RIFLE", dmg: 42, rate: 1.8, range: 70, unlock: 0, desc: "Long reach for long streets." },
+    { name: "BAT", short: "BAT", dmg: 26, rate: 2.2, range: 3.5, unlock: 150, desc: "A souvenir from the docks." },
+    { name: "SHOTGUN", short: "SHOTGUN", dmg: 60, rate: 1.1, range: 20, unlock: 400, desc: "Clears a doorway in one word." },
+    { name: "SNIPER", short: "SNIPER", dmg: 95, rate: 0.8, range: 120, unlock: 800, desc: "One shot from the Palm Heights." }
+  ];
 
-EB.RADIO_STATIONS = [
-  { name: "OFF", tempo: 0, wave: "sine", bass: 0 },
-  { name: "EMBER FM", tempo: 112, wave: "sawtooth", bass: 55 },
-  { name: "NEON WAVE", tempo: 128, wave: "square", bass: 65 },
-  { name: "CINDER TALK", tempo: 96, wave: "triangle", bass: 48 },
-];
+  var MISSIONS = [
+    { title: "FIRST WHEELS", objective: "Get in the white car", progress: "", type: "enterCar", target: { x: 24, z: 168 }, cash: 200, respect: 25 },
+    { title: "PORTSIDE PICKUP", objective: "Drive to Mara at Portside", progress: "", type: "reach", target: { x: -168, z: -168 }, cash: 250, respect: 40 },
+    { title: "NEON ROW NIGHTS", objective: "Race through all 4 checkpoints in order", progress: "GATE 0/4", type: "race", targets: [{ x: 0, z: -60 }, { x: 40, z: 20 }, { x: 0, z: 60 }, { x: 60, z: 0 }], cash: 400, respect: 60 },
+    { title: "DOCKSIDE TROUBLE", objective: "Collect 3 crates in Cinder Docks", progress: "CRATE 0/3", type: "crates", targets: [{ x: -140, z: 154 }, { x: -116, z: 180 }, { x: -180, z: 166 }], cash: 350, respect: 60 },
+    { title: "GETAWAY DRIVER", objective: "Stay free — 60s left • Wanted 4★", progress: "ESCAPE 60s", type: "escape", seconds: 60, wanted: 4, cash: 500, respect: 80 },
+    { title: "AIR ONE", objective: "Escape the police helicopter", progress: "HELI 45s", type: "heli", seconds: 45, wanted: 4, cash: 550, respect: 90 },
+    { title: "CINDER RUN", objective: "Make 3 drops across the city", progress: "DROP 0/3", type: "drops", targets: [{ x: 140, z: -120 }, { x: -160, z: 40 }, { x: 100, z: 160 }], cash: 450, respect: 70 },
+    { title: "THE EMBER CROWN", objective: "Steal the Ember GT", progress: "", type: "stealGT", target: { x: 168, z: 150 }, cash: 1200, respect: 200 }
+  ];
 
-EB.PAINTS = ["Ember Orange", "Midnight Black", "Bay Blue", "Neon Pink", "Gold Rush", "Palm Green"];
-EB.PAINT_HEX = [0xff6a1a, 0x14161c, 0x2a9df4, 0xff4ad9, 0xffd23e, 0x2fbf5a];
+  var NEXT_TEXT = [
+    "Portside Pickup: Drive to Mara at Portside",
+    "Neon Row Nights: Win the street race",
+    "Dockside Trouble: Grab 3 crates, handle the Rust Crew",
+    "Getaway Driver: Lose the heat for 60 seconds",
+    "Air One: Escape the police helicopter",
+    "Cinder Run: Make 3 drops across the city",
+    "The Ember Crown: Steal the Ember GT",
+    "Story complete — Ember Bay is yours, King"
+  ];
 
-// Live state. Save/load (save.js) only persists the marked fields.
-EB.state = {
-  started: false, paused: false, muted: false,
-  cash: 250, respect: 0, rankIndex: 0, health: 100,
-  wanted: 0, wantedHeat: 0, // wantedHeat builds up, then becomes stars
-  weapon: 0, radio: 0, paintIndex: 0,
-  engineLevel: 1, armorLevel: 1,
-  missionIndex: 0,            // 0-based into EB.MISSIONS
-  missionDone: [false, false, false, false, false, false, false, false],
-  storyComplete: false,
-  inCar: false, carId: -1, autoDrive: false,
-  speedMph: 0, onFoot: true,
-  timePlayed: 0, kills: 0, carsStolen: 0,
-  distanceDriven: 0, // v10: metres driven, shown on the pause map
-  mapOpen: false, // v10: pause-map overlay open
-  garageOpen: false, wheelOpen: false,
-  playerX: 24, playerZ: 24, playerHeading: 0,
-};
+  var GARAGE = [
+    { id: "engine", name: "ENGINE", cost: [300, 700, 1500], desc: "Top speed +12% a level" },
+    { id: "armor", name: "ARMOR", cost: [250, 600, 1200], desc: "Damage taken -20% a level" },
+    { id: "paint", name: "PAINT", cost: [150, 400, 900], desc: "Fresh coat — respect +15 a level" }
+  ];
 
-EB.util = {
-  clamp: function (v, a, b) { return v < a ? a : (v > b ? b : v); },
-  lerp: function (a, b, t) { return a + (b - a) * t; },
-  rand: function (a, b) { return a + Math.random() * (b - a); },
-  randInt: function (a, b) { return Math.floor(a + Math.random() * (b - a + 1)); },
-  pick: function (arr) { return arr[Math.floor(Math.random() * arr.length)]; },
-  dist2: function (x1, z1, x2, z2) { var dx = x2 - x1, dz = z2 - z1; return Math.sqrt(dx * dx + dz * dz); },
-  angleTo: function (x1, z1, x2, z2) { return Math.atan2(x2 - x1, z2 - z1); },
-  angleLerp: function (a, b, t) {
-    var d = b - a;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return a + d * t;
-  },
-  fmtMoney: function (n) { return "$" + Math.round(n).toLocaleString("en-US"); },
-  fmtTime: function (s) {
-    var m = Math.floor(s / 60), ss = Math.floor(s % 60);
-    return m + ":" + (ss < 10 ? "0" : "") + ss;
-  },
-  rankFor: function (respect) {
-    var idx = 0;
-    for (var i = 0; i < EB.RANKS.length; i++) if (respect >= EB.RANKS[i].need) idx = i;
-    return idx;
-  },
-  districtAt: function (x, z) {
-    var best = EB.DISTRICTS[0], bd = 1e9;
-    for (var i = 0; i < EB.DISTRICTS.length; i++) {
-      var d = EB.util.dist2(x, z, EB.DISTRICTS[i].x, EB.DISTRICTS[i].z);
-      if (d < bd) { bd = d; best = EB.DISTRICTS[i]; }
-    }
-    return best;
-  },
-};
+  var PAINTS = [0x1e56d8, 0xd81e2c, 0x18b58a, 0xf2a516, 0x8a2be2, 0xe8e8e8];
 
-// Toast/centre message bus used by HUD and missions.
-EB.say = function (text, ms) { if (EB.hud) EB.hud.toast(text, ms || 2600); };
-EB.bigSay = function (text, ms) { if (EB.hud) EB.hud.center(text, ms || 2200); };
-EB.addCash = function (n) { EB.state.cash += n; };
-EB.addRespect = function (n) {
-  EB.state.respect += n;
-  var idx = EB.util.rankFor(EB.state.respect);
-  if (idx > EB.state.rankIndex) {
-    EB.state.rankIndex = idx;
-    EB.bigSay("NEW RANK: " + EB.RANKS[idx].name, 3000);
-    EB.say("Respect rank up: " + EB.RANKS[idx].name);
-  }
-};
-EB.setWanted = function (stars) {
-  EB.state.wanted = EB.util.clamp(Math.round(stars), 0, 5);
-  if (EB.hud) EB.hud.refreshWanted();
-};
+  var SIGNS = ["EMBER INN", "SOLIS PIER", "NEON ROW", "HEAT LINE", "PORTSIDE MARKET", "CINDER DOCKS", "PALM COURT", "BAY VIEW", "SUNSET MOTEL", "MARKET HALL", "EMBER BAY", "EAT LINE"];
+
+  var BUILDING_COLORS = [0xffe3a3, 0xffb3a7, 0x7ec8e3, 0x7ed957, 0xf2a516, 0xe8909a, 0x9ad1e0, 0xd8c98a, 0xf5f0dc, 0x8fd0a8];
+  var GLASS_COLORS = [0x2aa882, 0x5fd4a8, 0x3fae8c];
+
+  EB.config = {
+    PALETTE: PALETTE, GRID: GRID, DISTRICTS: DISTRICTS, STREET_NAMES: STREET_NAMES,
+    RANKS: RANKS, WEAPONS: WEAPONS, MISSIONS: MISSIONS, NEXT_TEXT: NEXT_TEXT,
+    GARAGE: GARAGE, PAINTS: PAINTS, SIGNS: SIGNS, BUILDING_COLORS: BUILDING_COLORS,
+    GLASS_COLORS: GLASS_COLORS,
+    START_CASH: 250, TRAFFIC_COUNT: 22, PED_COUNT: 60, SAVE_KEY: "emberbay-save-v1"
+  };
+  EB.SAVE_KEY = "emberbay-save-v1";
+})();
