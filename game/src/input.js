@@ -1,33 +1,20 @@
-// EMBER BAY — input: keyboard + mouse drag state, edge-triggered presses.
-(function () {
-  var EB = window.EB || (window.EB = {});
-  var keys = {}, pressed = {};
-  var drag = { active: false, dx: 0, dy: 0, lastX: 0, lastY: 0 };
-  var mouse = { down: false, x: 0, y: 0, clicked: false };
-
-  window.addEventListener("keydown", function (e) {
-    if (!keys[e.code]) pressed[e.code] = true;
+// EMBER BAY input — round 5, written from zero.
+export function makeInput() {
+  const keys = {};
+  const pressed = new Set();
+  window.addEventListener("keydown", e => {
+    if (!keys[e.code]) pressed.add(e.code);
     keys[e.code] = true;
-    if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) e.preventDefault();
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
   });
-  window.addEventListener("keyup", function (e) { keys[e.code] = false; });
-  window.addEventListener("blur", function () { keys = {}; drag.active = false; });
-
-  var canvas = null;
-  function bind(el) {
-    canvas = el;
-    el.addEventListener("mousedown", function (e) { mouse.down = true; mouse.x = e.clientX; mouse.y = e.clientY; drag.active = true; drag.lastX = e.clientX; drag.lastY = e.clientY; drag.dx = 0; drag.dy = 0; });
-    window.addEventListener("mouseup", function (e) { if (mouse.down) mouse.clicked = true; mouse.down = false; drag.active = false; });
-    window.addEventListener("mousemove", function (e) {
-      if (drag.active) { drag.dx += e.clientX - drag.lastX; drag.dy += e.clientY - drag.lastY; drag.lastX = e.clientX; drag.lastY = e.clientY; }
-    });
-  }
-
-  function down(code) { return !!keys[code]; }
-  function wasPressed(code) { return !!pressed[code]; }
-  function endFrame() { pressed = {}; drag.dx = 0; drag.dy = 0; mouse.clicked = false; }
-
-  EB.input = { bind: bind, down: down, wasPressed: wasPressed, endFrame: endFrame, drag: drag, mouse: mouse,
-    axis: function () { return (down("KeyD") || down("ArrowRight") ? 1 : 0) - (down("KeyA") || down("ArrowLeft") ? 1 : 0); },
-    throttle: function () { return (down("KeyW") || down("ArrowUp") ? 1 : 0) - (down("KeyS") || down("ArrowDown") ? 1 : 0); } };
-})();
+  window.addEventListener("keyup", e => { keys[e.code] = false; });
+  return {
+    get forward() { return keys.KeyW || keys.ArrowUp; },
+    get back() { return keys.KeyS || keys.ArrowDown; },
+    get left() { return keys.KeyA || keys.ArrowLeft; },
+    get right() { return keys.KeyD || keys.ArrowRight; },
+    get run() { return keys.ShiftLeft || keys.ShiftRight; },
+    wasPressed(code) { const hit = pressed.has(code); if (hit) pressed.delete(code); return hit; },
+    clearPressed() { pressed.clear(); },
+  };
+}
