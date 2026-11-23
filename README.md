@@ -1,11 +1,13 @@
 # EMBER BAY — Heat Line
 
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Three.js r160](https://img.shields.io/badge/Three.js-r160-black)
-![make.fun gta6-01](https://img.shields.io/badge/make.fun-gta6--01-orange)
 
 An original open-world crime game in the browser, built for the make.fun
-**gta6-01 "Make GTA 6"** bounty. Drive, steal, run, and rise through the
+[gta6-01 "Make GTA 6"](https://make.fun/bounty/gta6-01) bounty. Drive, steal, run, and rise through the
 ranks of Ember Bay — a fictional volcanic island city caught in golden hour.
 
 You are **Kade Venn**, fresh out of a bad deal in Portside. Your crew —
