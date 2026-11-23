@@ -1,479 +1,367 @@
-// EMBER BAY — world: the island city. Seeded, deterministic.
-// Ground (roads, sidewalks, beach, sea) is one painted canvas texture;
-// buildings are boxes with per-size window-grid textures, striped awnings
-// and big readable signs. Peds never walk on asphalt: sidewalkPoint /
-// clampToSidewalk keep them on the pavements.
-(function () {
-  var EB = window.EB || (window.EB = {});
-  var C = EB.config, G = C.GRID;
+// EMBER BAY world — round 5, written from zero.
+// HD rule: nothing is a bare 90-degree box. Buildings are beveled extrusions
+// from rounded-rectangle shapes; windows are glowing canvas-texture planes;
+// palms have curved tube trunks + drooping frond ellipsoids; roofs vary.
+const THREE = window.THREE;
+import { GRID, PALETTE, SIGNS, districtAt, ROAD_HALF, WALK_HALF } from "./config.js";
 
-  function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-  var rng = mulberry32(20261123);
+function mulberry(seed) {
+  let t = seed >>> 0;
+  return () => { t += 0x6D2B79F5; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
+}
 
-  function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
-  function rr(a, b) { return a + rng() * (b - a); }
-
-  var scene = null, colliders = [], blocks = [], noBuild = [{ x: 192, z: 48, r: 16 }, { x: 192, z: -64, r: 16 }];
-  var VOLCANO = { x: -170, z: -170, r: 58, h: 95 };
-  var smokePuffs = [], sailboats = [], billboardMesh = null;
-
-  // ---- canvas helpers ----
-  function cv(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return [c, c.getContext("2d")]; }
-  function tex(canvas) { var t = new THREE.CanvasTexture(canvas); t.anisotropy = 1; t.colorSpace = THREE.SRGBColorSpace; return t; }
-  function hex(n) { return "#" + ("000000" + n.toString(16)).slice(-6); }
-
-  // ---- ground: one 2048 canvas for x,z in [-240, 320] ----
-  var GS = 2048 / 560, GO = 240;
-  function gx(x) { return (x + GO) * GS; }
-  function gz(z) { return (z + GO) * GS; }
-  var groundCanvas = null;
-
-  function paintGround() {
-    var pair = cv(2048, 2048), c = pair[0], g = pair[1];
-    // grass base
-    g.fillStyle = "#69b34c"; g.fillRect(0, 0, 2048, 2048);
-    for (var i = 0; i < 2600; i++) {
-      g.fillStyle = rng() < 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,60,0,0.06)";
-      g.fillRect(rng() * 2048, rng() * 2048, rr(4, 26), rr(4, 26));
+// ---------- canvas texture helpers ----------
+function canvasTex(w, h, draw) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  draw(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+function facadeTex(base, lit) {
+  // Window grid with warm dusk glow — small windows, wide spacing, mostly dark
+  // with a few warm lit panes (reads as windows, not a checkerboard).
+  return canvasTex(128, 256, (g, w, h) => {
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    const cols = 3, rows = 6, cw = w / cols, ch = h / rows;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const on = ((r * 5 + c * 7) % 7) === 0;
+      g.fillStyle = on ? lit : "rgba(24,32,46,0.92)";
+      g.fillRect(c * cw + 9, r * ch + 9, cw - 18, ch - 18);
+      g.fillStyle = "rgba(255,255,255,0.14)";
+      g.fillRect(c * cw + 9, r * ch + 9, cw - 18, 3);
     }
-    // sea (east) + beach sand
-    g.fillStyle = "#2fb3a3"; g.fillRect(gx(250), 0, 2048 - gx(250), 2048);
-    g.fillStyle = "#1d8a9e";
-    for (var w = 0; w < 26; w++) { g.fillRect(gx(252), rng() * 2048, 2048 - gx(252), 2); }
-    g.fillStyle = "#f2d8a0"; g.fillRect(gx(205), 0, gx(250) - gx(205), 2048);
-    g.fillStyle = "rgba(255,255,255,0.25)";
-    for (var s = 0; s < 40; s++) { g.fillRect(gx(205) + rng() * (gx(250) - gx(205)), rng() * 2048, rr(6, 20), 3); }
-    // sidewalks (light grey, tiled) then asphalt roads
-    var lines = [];
-    for (var v = G.min; v <= G.max; v += G.spacing) lines.push(v);
-    g.strokeStyle = "rgba(0,0,0,0.10)"; g.lineWidth = 1;
-    lines.forEach(function (L) {
-      g.fillStyle = "#cfc8bd";
-      g.fillRect(gx(L - G.walkHalf), 0, (G.walkHalf * 2) * GS, 2048);
-      g.fillRect(0, gz(L - G.walkHalf), 2048, (G.walkHalf * 2) * GS);
-      // tile seams
-      for (var t = -240; t < 320; t += 8) {
-        g.beginPath(); g.moveTo(gx(L - G.walkHalf), gz(t)); g.lineTo(gx(L + G.walkHalf), gz(t)); g.stroke();
-        g.beginPath(); g.moveTo(gx(t), gz(L - G.walkHalf)); g.lineTo(gx(t), gz(L + G.walkHalf)); g.stroke();
-      }
-    });
-    // asphalt with mottled square patches
-    lines.forEach(function (L) {
-      g.fillStyle = "#2b2b33";
-      g.fillRect(gx(L - G.roadHalf), 0, (G.roadHalf * 2) * GS, 2048);
-      g.fillRect(0, gz(L - G.roadHalf), 2048, (G.roadHalf * 2) * GS);
-      for (var p = 0; p < 260; p++) {
-        var px = gx(L - G.roadHalf) + rng() * (G.roadHalf * 2) * GS, pz = rng() * 2048;
-        g.fillStyle = rng() < 0.5 ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.09)";
-        g.fillRect(px, pz, rr(7, 16), rr(7, 16));
-      }
-      // lane dashes
-      g.fillStyle = "rgba(255,255,255,0.75)";
-      for (var d = -220; d < 220; d += 12) {
-        g.fillRect(gx(L) - 1.5, gz(d), 3, 5 * GS);
-        g.fillRect(gx(d), gz(L) - 1.5, 5 * GS, 3);
-      }
-      // crosswalks at every intersection
-      lines.forEach(function (M) {
-        for (var k = -2; k <= 2; k++) {
-          g.fillRect(gx(L - 4 + k * 1.8), gz(M - 6), 1.1 * GS, 12 * GS);
-          g.fillRect(gx(M - 6), gz(L - 4 + k * 1.8), 12 * GS, 1.1 * GS);
-        }
-      });
-    });
-    groundCanvas = c;
-    return tex(c);
-  }
-
-  // ---- building textures ----
-  var bTexCache = {};
-  function buildingTexture(color, cols, rows) {
-    var key = color + "|" + cols + "|" + rows;
-    if (bTexCache[key]) return bTexCache[key];
-    var pair = cv(128, 256), c = pair[0], g = pair[1];
-    g.fillStyle = hex(color); g.fillRect(0, 0, 128, 256);
-    g.fillStyle = "rgba(255,255,255,0.10)"; g.fillRect(0, 0, 128, 10);
-    var cw = 128 / cols, ch = 256 / rows;
-    for (var r = 0; r < rows; r++) for (var cc = 0; cc < cols; cc++) {
-      var lit = rng() < 0.14;
-      g.fillStyle = lit ? "#ffd75e" : "#1c2733";
-      g.fillRect(cc * cw + cw * 0.22, r * ch + ch * 0.25, cw * 0.56, ch * 0.5);
-      g.fillStyle = "rgba(255,255,255,0.16)";
-      g.fillRect(cc * cw + cw * 0.22, r * ch + ch * 0.25, cw * 0.56, 2);
+  });
+}
+function signTex(text, bg, fg) {
+  return canvasTex(512, 128, (g, w, h) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
+    g.fillStyle = fg; g.font = "bold 56px Arial, sans-serif";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(text, w / 2, h / 2 + 2);
+  });
+}
+function awningTex(c1, c2) {
+  return canvasTex(128, 64, (g, w, h) => {
+    for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? c1 : c2; g.fillRect(i * 16, 0, 16, h); }
+    g.fillStyle = "rgba(0,0,0,0.15)"; g.fillRect(0, h - 10, w, 10);
+  });
+}
+function umbrellaTex(c1) {
+  return canvasTex(128, 128, (g, w, h) => {
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = i % 2 ? c1 : "#fff7e8";
+      g.beginPath(); g.moveTo(w / 2, h / 2);
+      g.arc(w / 2, h / 2, w / 2, (i / 8) * Math.PI * 2, ((i + 1) / 8) * Math.PI * 2); g.fill();
     }
-    var t = tex(c);
-    bTexCache[key] = t;
-    return t;
-  }
-  function glassTexture() {
-    var pair = cv(64, 256), c = pair[0], g = pair[1];
-    var gr = g.createLinearGradient(0, 0, 0, 256);
-    gr.addColorStop(0, "#a8e8c8"); gr.addColorStop(0.55, "#5fd4a8"); gr.addColorStop(1, "#2aa882");
-    g.fillStyle = gr; g.fillRect(0, 0, 64, 256);
-    g.fillStyle = "rgba(10,40,30,0.55)";
-    for (var r = 0; r < 14; r++) for (var cc = 0; cc < 3; cc++) g.fillRect(6 + cc * 20, 8 + r * 18, 14, 10);
-    return tex(c);
-  }
-  function signTexture(text, sub, bg, fg) {
-    var pair = cv(512, 128), c = pair[0], g = pair[1];
-    g.fillStyle = bg; g.fillRect(0, 0, 512, 128);
-    g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(6, 6, 500, 116);
-    g.fillStyle = fg; g.textAlign = "center"; g.textBaseline = "middle";
-    g.font = "bold 56px Arial";
-    g.fillText(text, 256, sub ? 52 : 64, 480);
-    if (sub) { g.font = "bold 26px Arial"; g.fillText(sub, 256, 100, 480); }
-    return tex(c);
-  }
-  function awningTexture(color) {
-    var pair = cv(128, 64), c = pair[0], g = pair[1];
-    for (var i = 0; i < 8; i++) { g.fillStyle = i % 2 ? "#ffffff" : hex(color); g.fillRect(i * 16, 0, 16, 64); }
-    g.fillStyle = "rgba(0,0,0,0.18)"; g.fillRect(0, 48, 128, 16);
-    return tex(c);
-  }
-  function billboardTexture() {
-    var pair = cv(1024, 320), c = pair[0], g = pair[1];
-    g.fillStyle = "#14082e"; g.fillRect(0, 0, 1024, 320);
-    g.strokeStyle = "#ff2fb3"; g.lineWidth = 10; g.strokeRect(10, 10, 1004, 300);
-    g.strokeStyle = "rgba(255,47,179,0.4)"; g.lineWidth = 22; g.strokeRect(22, 22, 980, 276);
-    g.fillStyle = "#ffffff"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.font = "900 150px Arial"; g.fillText("EMBER BAY", 512, 130, 960);
-    g.fillStyle = "#ffb3a7"; g.font = "bold 54px Arial";
-    g.fillText("NEON ROW • OPEN ALL NIGHT", 512, 250, 940);
-    return tex(c);
-  }
+  });
+}
+function roadTex() {
+  // One tile = one 40 m block: asphalt + center dashes + a crosswalk band.
+  return canvasTex(64, 512, (g, w, h) => {
+    g.fillStyle = "#2b2f36"; g.fillRect(0, 0, w, h);
+    g.fillStyle = "#f5f0e0";
+    for (let y = 30; y < h; y += 64) g.fillRect(w / 2 - 2, y, 4, 26); // center dashes
+    for (let i = 0; i < 8; i++) g.fillRect(6 + i * 7, h - 26, 4, 20); // crosswalk band
+  });
+}
+const ROAD_TEX = roadTex();
+ROAD_TEX.wrapS = THREE.RepeatWrapping; ROAD_TEX.wrapT = THREE.RepeatWrapping;
+ROAD_TEX.repeat.set(1, 10); // tile = one 40 m block, repeats along the 410 m road
+function skyTex() {
+  return canvasTex(16, 512, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0.0, "#2e5aa8"); gr.addColorStop(0.35, "#5a7ac8");
+    gr.addColorStop(0.52, "#ff8c42"); gr.addColorStop(0.72, "#ffb347"); gr.addColorStop(1, "#ffd9a0");
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+}
 
-  // ---- shared geometry/materials ----
-  var boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  var cylGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
-  var coneGeo = new THREE.ConeGeometry(1, 1, 10);
-  var sphereGeo = new THREE.SphereGeometry(1, 12, 10);
-  var matCache = {};
-  function mat(color, opts) {
-    var key = color + "|" + JSON.stringify(opts || {});
-    if (!matCache[key]) {
-      var o = opts || {};
-      matCache[key] = new THREE.MeshLambertMaterial({ color: color, emissive: o.emissive || 0x000000, emissiveIntensity: o.ei || 1, transparent: !!o.transparent, opacity: o.opacity == null ? 1 : o.opacity });
-    }
-    return matCache[key];
-  }
-  function phong(color, shininess) {
-    var key = "p" + color + "|" + shininess;
-    if (!matCache[key]) matCache[key] = new THREE.MeshPhongMaterial({ color: color, shininess: shininess || 60, specular: 0x666666 });
-    return matCache[key];
-  }
-  function box(w, h, d, material, x, y, z, ry) {
-    var m = new THREE.Mesh(boxGeo, material);
-    m.scale.set(w, h, d); m.position.set(x, y, z);
-    if (ry) m.rotation.y = ry;
-    m.castShadow = false; m.receiveShadow = false;
-    scene.add(m);
-    return m;
-  }
+function roundedRectShape(w, d, r) {
+  const s = new THREE.Shape(); const x = -w / 2, y = -d / 2;
+  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + d - r); s.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
+  s.lineTo(x + r, y + d); s.quadraticCurveTo(x, y + d, x, y + d - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+function beveledBox(w, h, d, r, mat) {
+  const geo = new THREE.ExtrudeGeometry(roundedRectShape(w, d, Math.min(r, w / 2 - 0.1, d / 2 - 0.1)), {
+    depth: h, bevelEnabled: true, bevelThickness: 0.35, bevelSize: 0.35, bevelSegments: 1, curveSegments: 4,
+  });
+  geo.rotateX(-Math.PI / 2); // shape XY -> XZ ground plane, extrude up
+  geo.translate(0, h, 0);
+  return new THREE.Mesh(geo, mat);
+}
 
-  // ---- placement helpers ----
-  function roadLines() { var a = []; for (var v = G.min; v <= G.max; v += G.spacing) a.push(v); return a; }
-  function nearestLine(v) { return Math.round((v - G.min) / G.spacing) * G.spacing + G.min; }
-  function isOnRoad(x, z) {
-    if (x < -205 || x > 205 || z < -205 || z > 205) return false;
-    return Math.abs(x - nearestLine(x)) < G.roadHalf || Math.abs(z - nearestLine(z)) < G.roadHalf;
+const FACADES = [
+  facadeTex("#3fae8a", "#ffe9a8"), facadeTex("#e86a92", "#ffe9a8"),
+  facadeTex("#5a8fd6", "#ffe9a8"), facadeTex("#e8b45a", "#fff2c8"),
+  facadeTex("#7ed957", "#ffe9a8"), facadeTex("#b06ad6", "#ffe9a8"),
+];
+const AWNINGS = [awningTex("#ff5a5a", "#fff7e8"), awningTex("#2ec4b6", "#fff7e8"), awningTex("#ff8c1a", "#fff7e8")];
+
+export function buildWorld(scene) {
+  const rnd = mulberry(20261123);
+  const updaters = [];
+  const buildings = [];   // {x,z,w,d,h,district}
+  const palmSpots = [];
+  const colliders = [];   // {x,z,r} circles for driving collision
+
+  // ----- sky, sun, fog -----
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(1500, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTex(), side: THREE.BackSide, fog: false }));
+  scene.add(sky);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(55, 20, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffd76a, fog: false }));
+  sun.position.set(-420, 210, -620); scene.add(sun);
+  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(85, 20, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.25, fog: false }));
+  sunGlow.position.copy(sun.position); scene.add(sunGlow);
+  scene.fog = new THREE.Fog(0xff9a5a, 280, 1050);
+  scene.add(new THREE.HemisphereLight(0x8fb8ff, 0xff9a5a, 0.95));
+  const dirLight = new THREE.DirectionalLight(0xffe0b0, 1.6);
+  dirLight.position.set(-300, 400, 200); scene.add(dirLight);
+
+  // ----- ground, sea, beach -----
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400),
+    new THREE.MeshStandardMaterial({ color: 0x86c06a, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.05; scene.add(ground);
+  const cityBase = new THREE.Mesh(new THREE.PlaneGeometry(430, 430),
+    new THREE.MeshStandardMaterial({ color: 0xb9b2a4, roughness: 1 }));
+  cityBase.rotation.x = -Math.PI / 2; cityBase.position.y = 0; scene.add(cityBase);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(700, 1400),
+    new THREE.MeshStandardMaterial({ color: PALETTE.sea, roughness: 0.35, metalness: 0.1 }));
+  sea.rotation.x = -Math.PI / 2; sea.position.set(560, -0.02, 0); scene.add(sea);
+  const foam = new THREE.Mesh(new THREE.PlaneGeometry(6, 1400),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
+  foam.rotation.x = -Math.PI / 2; foam.position.set(212, 0.03, 0); scene.add(foam);
+  const beach = new THREE.Mesh(new THREE.PlaneGeometry(24, 430),
+    new THREE.MeshStandardMaterial({ color: PALETTE.sand, roughness: 1 }));
+  beach.rotation.x = -Math.PI / 2; beach.position.set(200, 0.01, 0); scene.add(beach);
+
+  // ----- volcano (NW, inland) -----
+  const volc = new THREE.Group();
+  const conePts = [];
+  for (let i = 0; i <= 10; i++) { const t = i / 10; conePts.push(new THREE.Vector2(95 * (1 - t) + 6, 95 * t)); }
+  const cone = new THREE.Mesh(new THREE.LatheGeometry(conePts, 24),
+    new THREE.MeshStandardMaterial({ color: PALETTE.volcano, roughness: 1, flatShading: true }));
+  volc.add(cone);
+  const lava = new THREE.Mesh(new THREE.ConeGeometry(10, 26, 12),
+    new THREE.MeshStandardMaterial({ color: PALETTE.lava, emissive: 0xff4400, emissiveIntensity: 1.6 }));
+  lava.position.y = 92; volc.add(lava);
+  const lavaFlow = new THREE.Mesh(new THREE.PlaneGeometry(7, 60),
+    new THREE.MeshBasicMaterial({ color: 0xff6a1e }));
+  lavaFlow.rotation.x = -Math.PI / 2; lavaFlow.rotation.z = 0.5; lavaFlow.position.set(28, 46, 30); volc.add(lavaFlow);
+  const smoke = [];
+  for (let i = 0; i < 7; i++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(9 + rnd() * 8, 10, 8),
+      new THREE.MeshStandardMaterial({ color: 0xcccccc, transparent: true, opacity: 0.55 }));
+    s.position.set((rnd() - 0.5) * 18, 105 + i * 9, (rnd() - 0.5) * 18);
+    s.userData.phase = rnd() * 6.28; volc.add(s); smoke.push(s);
   }
-  function inNoBuild(x, z) {
-    for (var i = 0; i < noBuild.length; i++) { var nb = noBuild[i]; if (Math.hypot(x - nb.x, z - nb.z) < nb.r) return true; }
-    if (Math.hypot(x - VOLCANO.x, z - VOLCANO.z) < VOLCANO.r + 12) return true;
-    return false;
-  }
-  function sidewalkPoint() {
-    var lines = roadLines(), horizontal = rng() < 0.5;
-    var L = pick(lines), along = rr(-195, 195), off = (G.roadHalf + 1.5 + rng() * 1.5) * (rng() < 0.5 ? -1 : 1);
-    if (horizontal) return { x: along, z: L + off };
-    return { x: L + off, z: along };
-  }
-  function clampToSidewalk(p) {
-    if (!isOnRoad(p.x, p.z)) return p;
-    var lx = nearestLine(p.x), lz = nearestLine(p.z);
-    var dx = Math.abs(p.x - lx), dz = Math.abs(p.z - lz);
-    if (dx < G.roadHalf && dx <= dz) p.x = lx + (p.x >= lx ? 1 : -1) * (G.roadHalf + 1.5);
-    else if (dz < G.roadHalf) p.z = lz + (p.z >= lz ? 1 : -1) * (G.roadHalf + 1.5);
-    return p;
-  }
-  function collideCircle(p, r) {
-    for (var i = 0; i < colliders.length; i++) {
-      var b = colliders[i];
-      var nx = Math.max(b.x0, Math.min(p.x, b.x1)), nz = Math.max(b.z0, Math.min(p.z, b.z1));
-      var ddx = p.x - nx, ddz = p.z - nz, d2 = ddx * ddx + ddz * ddz;
-      if (d2 < r * r) {
-        if (d2 < 0.0001) { p.x = b.x1 + r; continue; }
-        var d = Math.sqrt(d2);
-        p.x = nx + ddx / d * r; p.z = nz + ddz / d * r;
+  volc.position.set(-300, 0, -300); scene.add(volc);
+  updaters.push(t => { smoke.forEach((s, i) => { s.position.y = 105 + i * 9 + Math.sin(t * 0.5 + s.userData.phase) * 2.5; s.position.x += Math.sin(t * 0.3 + i) * 0.02; }); });
+
+  // ----- roads, sidewalks, lamps (markings baked into one texture per road) -----
+  const asphaltMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, map: ROAD_TEX });
+  const walkMat = new THREE.MeshStandardMaterial({ color: PALETTE.sidewalk, roughness: 1 });
+  const roadLen = 410;
+  for (const s of GRID.streets) {
+    for (const horiz of [true, false]) {
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(roadLen, ROAD_HALF * 2), asphaltMat);
+      road.rotation.x = -Math.PI / 2; road.rotation.z = horiz ? 0 : Math.PI / 2;
+      road.position.set(horiz ? 0 : s, 0.02, horiz ? s : 0); scene.add(road);
+      for (const side of [-1, 1]) {
+        const walk = new THREE.Mesh(new THREE.PlaneGeometry(roadLen, WALK_HALF - ROAD_HALF), walkMat);
+        walk.rotation.x = -Math.PI / 2; walk.rotation.z = horiz ? 0 : Math.PI / 2;
+        walk.position.set(horiz ? 0 : s + side * (ROAD_HALF + (WALK_HALF - ROAD_HALF) / 2), 0.04,
+          horiz ? s + side * (ROAD_HALF + (WALK_HALF - ROAD_HALF) / 2) : 0);
+        scene.add(walk);
       }
     }
-    return p;
   }
-  function districtAt(x, z) {
-    for (var i = 0; i < C.DISTRICTS.length; i++) { var d = C.DISTRICTS[i]; if (x >= d.x0 && x < d.x1 && z >= d.z0 && z < d.z1) return d.name; }
-    return "Ember Bay";
-  }
-  function streetAt(x, z) {
-    var ix = Math.round((x - G.min) / G.spacing), iz = Math.round((z - G.min) / G.spacing);
-    var dx = Math.abs(x - nearestLine(x)), dz = Math.abs(z - nearestLine(z));
-    if (dx <= dz) return C.STREET_NAMES[ix % C.STREET_NAMES.length];
-    return C.STREET_NAMES[iz % C.STREET_NAMES.length];
-  }
-
-  // ---- builders ----
-  function buildSky() {
-    var pair = cv(64, 512), c = pair[0], g = pair[1];
-    var gr = g.createLinearGradient(0, 0, 0, 512);
-    gr.addColorStop(0, "#14205c"); gr.addColorStop(0.3, "#4a3a9e"); gr.addColorStop(0.45, "#e85d3d");
-    gr.addColorStop(0.62, "#ff8a3c"); gr.addColorStop(0.8, "#ffb347"); gr.addColorStop(1, "#ffd75e");
-    g.fillStyle = gr; g.fillRect(0, 0, 64, 512);
-    var sky = new THREE.Mesh(new THREE.SphereGeometry(900, 24, 16), new THREE.MeshBasicMaterial({ map: tex(c), side: THREE.BackSide, fog: false }));
-    scene.add(sky);
-    var sun = new THREE.Mesh(new THREE.CircleGeometry(58, 32), new THREE.MeshBasicMaterial({ color: 0xffdf6b, fog: false }));
-    sun.position.set(-620, 210, -420); sun.lookAt(0, 40, 0);
-    scene.add(sun);
-    var sunGlow = new THREE.Mesh(new THREE.CircleGeometry(70, 32), new THREE.MeshBasicMaterial({ color: 0xff9a3c, fog: false, transparent: true, opacity: 0.35 }));
-    sunGlow.position.set(-622, 210, -422); sunGlow.lookAt(0, 40, 0);
-    scene.add(sunGlow);
-    // clouds
-    for (var i = 0; i < 12; i++) {
-      var cl = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false }));
-      cl.scale.set(rr(18, 42), rr(4, 7), rr(10, 18));
-      cl.position.set(rr(-500, 500), rr(150, 260), rr(-500, 300));
-      scene.add(cl);
-    }
+  // lamps at corners (sparse)
+  const lampPoleMat = new THREE.MeshStandardMaterial({ color: 0x2c2c34, roughness: 0.6, metalness: 0.5 });
+  const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+  for (const sx of GRID.streets) for (const sz of GRID.streets) {
+    if ((sx + sz) % 160 !== 0) continue;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 6.5, 8), lampPoleMat);
+    pole.position.set(sx + 6.5, 3.25, sz + 6.5); scene.add(pole);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.2, 6), lampPoleMat);
+    arm.rotation.z = Math.PI / 2; arm.position.set(sx + 5.6, 6.4, sz + 6.5); scene.add(arm);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), lampGlowMat);
+    bulb.position.set(sx + 4.6, 6.3, sz + 6.5); scene.add(bulb);
   }
 
-  function buildGround() {
-    var ground = new THREE.Mesh(new THREE.PlaneGeometry(560, 560), new THREE.MeshLambertMaterial({ map: paintGround() }));
-    ground.rotation.x = -Math.PI / 2; ground.position.set(40, 0, 40);
-    scene.add(ground);
-    // sea swell plane slightly above, translucent
-    var sea = new THREE.Mesh(new THREE.PlaneGeometry(90, 560), new THREE.MeshLambertMaterial({ color: 0x2fb3a3, transparent: true, opacity: 0.25 }));
-    sea.rotation.x = -Math.PI / 2; sea.position.set(295, 0.15, 40);
-    scene.add(sea);
-  }
-
-  function buildVolcano() {
-    var pair = cv(256, 256), c = pair[0], g = pair[1];
-    g.fillStyle = "#4a2c22"; g.fillRect(0, 0, 256, 256);
-    for (var i = 0; i < 26; i++) {
-      g.strokeStyle = rng() < 0.5 ? "#ff6a1e" : "#8a3d1e"; g.lineWidth = rr(2, 6);
-      var x0 = 60 + rng() * 136;
-      g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0 + rr(-30, 30), 256); g.stroke();
-    }
-    var cone = new THREE.Mesh(new THREE.ConeGeometry(VOLCANO.r, VOLCANO.h, 18), new THREE.MeshLambertMaterial({ map: tex(c) }));
-    cone.position.set(VOLCANO.x, VOLCANO.h / 2 - 2, VOLCANO.z);
-    scene.add(cone);
-    var lava = new THREE.Mesh(new THREE.CircleGeometry(13, 16), new THREE.MeshBasicMaterial({ color: 0xff7a1e }));
-    lava.rotation.x = -Math.PI / 2; lava.position.set(VOLCANO.x, VOLCANO.h - 1, VOLCANO.z);
-    scene.add(lava);
-    var rim = new THREE.Mesh(new THREE.TorusGeometry(13, 2.4, 8, 18), mat(0x3a2018));
-    rim.rotation.x = Math.PI / 2; rim.position.set(VOLCANO.x, VOLCANO.h - 2, VOLCANO.z);
-    scene.add(rim);
-    for (var p = 0; p < 6; p++) {
-      var puff = new THREE.Mesh(sphereGeo, new THREE.MeshLambertMaterial({ color: 0xcfc8c0, transparent: true, opacity: 0.55 }));
-      puff.scale.set(rr(9, 15), rr(6, 9), rr(9, 15));
-      puff.position.set(VOLCANO.x + rr(-8, 8), VOLCANO.h + 6 + p * 7, VOLCANO.z + rr(-8, 8));
-      puff.userData.drift = rr(0.3, 0.8);
-      scene.add(puff); smokePuffs.push(puff);
-    }
-  }
-
-  function buildBuildings() {
-    var lines = roadLines();
-    var glassTex = glassTexture();
-    var blockColor = {};
-    var bi = 0;
-    for (var bx = 0; bx < 10; bx++) for (var bz = 0; bz < 10; bz++) {
-      var x0 = lines[bx] + G.walkHalf, z0 = lines[bz] + G.walkHalf;
-      var x1 = lines[bx + 1] - G.walkHalf, z1 = lines[bz + 1] - G.walkHalf;
-      var cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-      var district = districtAt(cx, cz);
-      var bc = pick(C.BUILDING_COLORS);
-      blocks.push({ x0: x0, z0: z0, x1: x1, z1: z1, color: bc, district: district });
-      blockColor[bx + "," + bz] = bc;
-      for (var sx = 0; sx < 2; sx++) for (var sz = 0; sz < 2; sz++) {
-        if (rng() > 0.52) continue;
-        var px = x0 + 2 + sx * 11 + 5.5, pz = z0 + 2 + sz * 11 + 5.5;
-        if (px > 196 || inNoBuild(px, pz)) continue;
-        var w = rr(8, 12), d = rr(8, 12);
-        var central = Math.hypot(cx, cz) < 90;
-        var h = central ? rr(10, 30) : rr(7, 16);
-        if (district === "Neon Row" && rng() < 0.22) h = rr(24, 38);
-        var glass = (district === "Neon Row" && rng() < 0.10) || (district === "Sunset Beach" && rng() < 0.12) || (rng() < 0.05);
-        var color = glass ? pick(C.GLASS_COLORS) : (rng() < 0.6 ? bc : pick(C.BUILDING_COLORS));
-        var cols = Math.max(2, Math.round(w / 3)), rows = Math.max(2, Math.round(h / 3.6));
-        var sideMat = glass
-          ? new THREE.MeshPhongMaterial({ map: glassTex, shininess: 90, specular: 0x99ccbb })
-          : new THREE.MeshLambertMaterial({ map: buildingTexture(color, cols, rows) });
-        var roofMat = mat(0x3a3340);
-        var mats = [sideMat, sideMat, roofMat, roofMat, sideMat, sideMat];
-        var b = new THREE.Mesh(boxGeo, mats);
-        b.scale.set(w, h, d); b.position.set(px, h / 2, pz);
+  // ----- buildings -----
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fe8c8, roughness: 0.15, metalness: 0.55, emissive: 0x1a5a44, emissiveIntensity: 0.25 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 1 });
+  const parapetMat = new THREE.MeshStandardMaterial({ color: 0x8a7a6a, roughness: 1 });
+  const bodyMats = [0x3fae8a, 0xe86a92, 0x5a8fd6, 0xe8b45a, 0x7ed957, 0xb06ad6, 0xff9a6a, 0x4ac8d6]
+    .map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+  let signIdx = 0;
+  for (let bi = 0; bi < GRID.streets.length - 1; bi++) {
+    for (let bj = 0; bj < GRID.streets.length - 1; bj++) {
+      const x0 = GRID.streets[bi] + WALK_HALF, x1 = GRID.streets[bi + 1] - WALK_HALF;
+      const z0 = GRID.streets[bj] + WALK_HALF, z1 = GRID.streets[bj + 1] - WALK_HALF;
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      // 2x2 sub-plots; skip some for parks/plazas
+      const plots = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+      for (const [px, pz] of plots) {
+        if (rnd() < 0.16) continue; // park / plaza gap
+        const w = 8 + rnd() * 4, d = 8 + rnd() * 4;
+        const bx = cx + px * (x1 - x0) / 4, bz = cz + pz * (z1 - z0) / 4;
+        const dist = districtAt(bx, bz);
+        const tall = rnd() < 0.15;
+        const h = tall ? 22 + rnd() * 10 : 6 + rnd() * 9;
+        const mat = tall && rnd() < 0.5 ? glassMat : bodyMats[Math.floor(rnd() * bodyMats.length)];
+        const b = beveledBox(w, h, d, 1.1, mat);
+        b.position.set(bx, 0, bz); b.rotation.y = (rnd() < 0.5 ? 0 : Math.PI / 2) * 0 + (rnd() - 0.5) * 0.06;
         scene.add(b);
-        colliders.push({ x0: px - w / 2, z0: pz - d / 2, x1: px + w / 2, z1: pz + d / 2 });
-        // flat roof cap + occasional roof box
-        if (rng() < 0.15) box(w * 0.5, 1.2, d * 0.5, mat(0x555066), px + rr(-1, 1), h + 0.6, pz + rr(-1, 1));
-        // striped awning on low shops
-        if (h < 12 && rng() < 0.55) {
-          var aw = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 2.2), new THREE.MeshLambertMaterial({ map: awningTexture(pick([0xd81e2c, 0x2ec4b6, 0xff9a3c, 0x7ed957])), side: THREE.DoubleSide }));
-          aw.position.set(px, 3.2, pz + d / 2 + 1.0); aw.rotation.x = -0.5;
+        buildings.push({ x: bx, z: bz, w, d, h, district: dist.name });
+        colliders.push({ x: bx, z: bz, r: Math.max(w, d) * 0.62 });
+        // roofline: parapet ring, sloped pyramid, or glass crown
+        const roll = rnd();
+        if (roll < 0.45) {
+          const par = beveledBox(w + 0.6, 0.9, d + 0.6, 0.5, parapetMat);
+          par.position.set(bx, h + 0.4, bz); scene.add(par);
+        } else if (roll < 0.7) {
+          const pyr = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, 3.2, 4), roofMat);
+          pyr.position.set(bx, h + 1.6, bz); pyr.rotation.y = Math.PI / 4; scene.add(pyr);
+        } else if (tall) {
+          const crown = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(w, d) * 0.32, Math.min(w, d) * 0.4, 2.4, 8),
+            new THREE.MeshStandardMaterial({ color: 0x2ec4b6, emissive: 0x0a5a50, emissiveIntensity: 0.7 }));
+          crown.position.set(bx, h + 1.2, bz); scene.add(crown);
+        }
+        // glowing window plane on the street-facing side
+        const face = new THREE.Mesh(new THREE.PlaneGeometry(w - 1.2, Math.min(h - 1.5, 14)),
+          new THREE.MeshBasicMaterial({ map: FACADES[Math.floor(rnd() * FACADES.length)] }));
+        const facingEast = Math.abs(bx) > Math.abs(bz);
+        face.position.set(bx + (facingEast ? w / 2 + 0.42 : 0), Math.min(h / 2 + 0.5, 8.5), bz + (facingEast ? 0 : d / 2 + 0.42));
+        face.rotation.y = facingEast ? Math.PI / 2 : 0;
+        scene.add(face);
+        // shop awning (~55%) + big readable sign (~30% of mid-rises)
+        if (h < 18 && rnd() < 0.55) {
+          const aw = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.85, 1.6),
+            new THREE.MeshBasicMaterial({ map: AWNINGS[Math.floor(rnd() * AWNINGS.length)], side: THREE.DoubleSide }));
+          aw.position.set(bx + (facingEast ? w / 2 + 0.55 : 0), 3.1, bz + (facingEast ? 0 : d / 2 + 0.55));
+          aw.rotation.y = facingEast ? Math.PI / 2 : 0; aw.rotation.x = -0.15;
           scene.add(aw);
         }
-        // big readable sign on mid-rises
-        if (h >= 10 && h <= 26 && rng() < 0.30) {
-          var signText = C.SIGNS[bi++ % C.SIGNS.length];
-          var sm = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(11, w * 0.95), 2.8), new THREE.MeshBasicMaterial({ map: signTexture(signText, null, pick(["#14082e", "#7a1020", "#0b3d5c", "#123f2a"]), "#ffffff") }));
-          sm.position.set(px, h * 0.72, pz + d / 2 + 0.12);
-          scene.add(sm);
+        if (h >= 10 && h < 26 && rnd() < 0.3) {
+          const st = new THREE.Mesh(new THREE.PlaneGeometry(11, 2.75),
+            new THREE.MeshBasicMaterial({ map: signTex(SIGNS[signIdx++ % SIGNS.length], "#1c1c28", "#ffe9a8") }));
+          st.position.set(bx, h * 0.72, bz + d / 2 + 0.5); scene.add(st);
         }
       }
     }
-    // far skyline towers (glass, beyond the grid)
-    for (var f = 0; f < 8; f++) {
-      var fx = rr(-230, -205), fz = rr(-200, 200);
-      if (inNoBuild(fx, fz)) continue;
-      var fh = rr(30, 52), fw = rr(12, 18);
-      var t = new THREE.Mesh(boxGeo, new THREE.MeshPhongMaterial({ map: glassTex, shininess: 90, specular: 0x99ccbb }));
-      t.scale.set(fw, fh, fw); t.position.set(fx, fh / 2, fz);
-      scene.add(t);
-    }
   }
 
-  function buildProps() {
-    // palms along sidewalks + beach
-    var trunkMat = mat(0x8a6a42), frondMat = mat(0x2fae5f);
-    function palm(x, z, s) {
-      var g = new THREE.Group();
-      var trunk = new THREE.Mesh(cylGeo, trunkMat);
-      trunk.scale.set(0.28 * s, 5.5 * s, 0.28 * s); trunk.position.y = 2.75 * s; g.add(trunk);
-      var crown = new THREE.Mesh(coneGeo, frondMat);
-      crown.scale.set(2.6 * s, 2.4 * s, 2.6 * s); crown.position.y = 6.4 * s; g.add(crown);
-      var crown2 = new THREE.Mesh(coneGeo, frondMat);
-      crown2.scale.set(2.0 * s, 1.6 * s, 2.0 * s); crown2.position.y = 7.2 * s; g.add(crown2);
-      g.position.set(x, 0, z);
-      scene.add(g);
+  // ----- palms (curved tube trunk + drooping frond ellipsoids) -----
+  function makePalm(scale = 1) {
+    const g = new THREE.Group();
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.7, 2.6, 0.2), new THREE.Vector3(1.5, 5.2, 0.4));
+    const trunk = new THREE.Mesh(new THREE.TubeGeometry(curve, 8, 0.22, 7),
+      new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 1 }));
+    g.add(trunk);
+    const frondMat = new THREE.MeshStandardMaterial({ color: 0x2fae4e, roughness: 0.9, flatShading: true });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const frond = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 6), frondMat);
+      frond.scale.set(1.7, 0.14, 0.55);
+      frond.position.set(1.5 + Math.cos(a) * 1.5, 5.6, 0.4 + Math.sin(a) * 1.5);
+      frond.rotation.y = -a; frond.rotation.z = -0.55;
+      g.add(frond);
     }
-    for (var i = 0; i < 46; i++) { var p = sidewalkPoint(); if (p.x < 200) palm(p.x, p.z, rr(0.85, 1.25)); }
-    for (var b = 0; b < 22; b++) palm(rr(210, 244), rr(-200, 200), rr(0.9, 1.3));
-    // beach umbrellas + towels
-    var umCols = [0xff5b8a, 0xffd75e, 0x2ec4b6, 0xff9a3c];
-    for (var u = 0; u < 16; u++) {
-      var ux = rr(212, 244), uz = rr(-190, 190);
-      var pole = new THREE.Mesh(cylGeo, mat(0xe8e0d0));
-      pole.scale.set(0.09, 2.4, 0.09); pole.position.set(ux, 1.2, uz); scene.add(pole);
-      var um = new THREE.Mesh(coneGeo, mat(pick(umCols)));
-      um.scale.set(2.2, 1.1, 2.2); um.position.set(ux, 2.8, uz); scene.add(um);
-      if (rng() < 0.7) box(1.8, 0.08, 0.9, mat(pick(umCols)), ux + rr(-2, 2), 0.1, uz + rr(-2, 2), rr(0, 3));
+    const nuts = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0x6a4a22, roughness: 1 }));
+    nuts.position.set(1.5, 5.2, 0.4); g.add(nuts);
+    g.scale.setScalar(scale);
+    return g;
+  }
+  function makeLeafyTree() {
+    const g = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 2.4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x7a5a38, roughness: 1 }));
+    trunk.position.y = 1.2; g.add(trunk);
+    const greens = [0x3aa84a, 0x58c24a, 0x2e9e5a];
+    for (let i = 0; i < 3; i++) {
+      const s = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5 - i * 0.25, 1),
+        new THREE.MeshStandardMaterial({ color: greens[i % 3], roughness: 1, flatShading: true }));
+      s.position.set((rnd() - 0.5) * 1.2, 3 + i * 0.9, (rnd() - 0.5) * 1.2); g.add(s);
     }
-    // sailboats on the sea
-    for (var s = 0; s < 3; s++) {
-      var sb = new THREE.Group();
-      var hull = new THREE.Mesh(boxGeo, mat(0xf5f0e0));
-      hull.scale.set(4.4, 1, 1.6); hull.position.y = 0.5; sb.add(hull);
-      var mast = new THREE.Mesh(cylGeo, mat(0x6a4a2a));
-      mast.scale.set(0.12, 6, 0.12); mast.position.y = 3.5; sb.add(mast);
-      var sail = new THREE.Mesh(new THREE.ConeGeometry(1.6, 4.6, 3), mat(pick([0xffffff, 0xffd75e, 0x2ec4b6])));
-      sail.scale.set(1, 1, 0.25); sail.position.set(0.4, 4, 0); sb.add(sail);
-      sb.position.set(rr(262, 310), 0.1, [-120, 10, 130][s] + rr(-15, 15));
-      sb.rotation.y = rr(-0.4, 0.4);
-      scene.add(sb); sailboats.push(sb);
-    }
-    // street lamps, benches, bins
-    for (var l = 0; l < 24; l++) {
-      var lp = sidewalkPoint();
-      var pole = new THREE.Mesh(cylGeo, mat(0x22242e));
-      pole.scale.set(0.12, 6.4, 0.12); pole.position.set(lp.x, 3.2, lp.z); scene.add(pole);
-      var lamp = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));
-      lamp.scale.set(0.5, 0.35, 0.5); lamp.position.set(lp.x, 6.5, lp.z); scene.add(lamp);
-    }
-    for (var bn = 0; bn < 14; bn++) {
-      var bp = sidewalkPoint();
-      box(2.4, 0.5, 0.9, mat(0x8a5a32), bp.x, 0.55, bp.z, rr(0, 3));
-      box(0.5, 0.5, 0.5, mat(0x2e7d4f), bp.x + rr(-3, 3), 0.35, bp.z + rr(-3, 3));
-    }
-    // Portside container yard + cranes
-    for (var cn = 0; cn < 18; cn++) {
-      var cxp = rr(-200, -60), czp = rr(-200, -120);
-      box(rr(5, 7), 2.6, 2.6, mat(pick([0xd81e2c, 0x2ec4b6, 0xf2a516, 0x7ec8e3])), cxp, 1.3 + (cn % 3) * 2.6, czp, rr(0, 1.57));
-    }
-    for (var cr = 0; cr < 2; cr++) {
-      var crx = -150 + cr * 60, crz = -150;
-      box(2, 34, 2, mat(0xf2a516), crx, 17, crz);
-      box(26, 2, 2, mat(0xf2a516), crx + 8, 32, crz);
-      box(3, 4, 3, mat(0x333333), crx + 16, 29.5, crz);
-    }
+    return g;
+  }
+  // palms along beach + scattered in districts
+  for (let z = -180; z <= 180; z += 24) {
+    const p = makePalm(0.9 + rnd() * 0.5); p.position.set(206 + rnd() * 6, 0, z + (rnd() - 0.5) * 8);
+    p.rotation.y = rnd() * 6.28; scene.add(p); palmSpots.push({ x: p.position.x, z: p.position.z });
+  }
+  for (let i = 0; i < 28; i++) {
+    const x = (rnd() - 0.5) * 380, z = (rnd() - 0.5) * 380;
+    if (Math.abs(x) > 190 || Math.abs(z) > 190) continue;
+    const p = rnd() < 0.6 ? makePalm(0.8 + rnd() * 0.4) : makeLeafyTree();
+    p.position.set(x, 0, z); p.rotation.y = rnd() * 6.28; scene.add(p);
   }
 
-  function buildGantries() {
-    // two EMBER BAY gantries spanning the coastal road (x=200)
-    [{ z: 48 }, { z: -64 }].forEach(function (gz0, idx) {
-      var z = gz0.z;
-      box(1.2, 13, 1.2, mat(0x1c1c26), 192, 6.5, z);
-      box(1.2, 13, 1.2, mat(0x1c1c26), 208, 6.5, z);
-      var panel = new THREE.Mesh(new THREE.PlaneGeometry(18, 5.6), new THREE.MeshBasicMaterial({ map: billboardTexture(), side: THREE.DoubleSide }));
-      panel.position.set(200, 11.5, z);
-      scene.add(panel);
-      var beam = box(17.5, 0.8, 0.8, mat(0x1c1c26), 200, 14.6, z);
-      if (idx === 0) billboardMesh = panel;
-    });
+  // ----- beach umbrellas + sailboats -----
+  for (let i = 0; i < 14; i++) {
+    const x = 198 + rnd() * 10, z = -170 + rnd() * 340;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6),
+      new THREE.MeshStandardMaterial({ color: 0xf5f0e0 }));
+    pole.position.set(x, 1.3, z); scene.add(pole);
+    const um = new THREE.Mesh(new THREE.ConeGeometry(1.9, 0.9, 10),
+      new THREE.MeshBasicMaterial({ map: umbrellaTex(["#ff5a5a", "#2ec4b6", "#ff8c1a"][i % 3]) }));
+    um.position.set(x, 2.9, z); scene.add(um);
+  }
+  const sailboats = [];
+  for (let i = 0; i < 3; i++) {
+    const boat = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.SphereGeometry(2.2, 10, 6),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }));
+    hull.scale.set(2.2, 0.55, 0.8); hull.position.y = 0.3; boat.add(hull);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 5.5, 6),
+      new THREE.MeshStandardMaterial({ color: 0x5a4632 }));
+    mast.position.y = 3; boat.add(mast);
+    const sailShape = new THREE.Shape();
+    sailShape.moveTo(0, 0); sailShape.lineTo(0, 5); sailShape.lineTo(2.6, 0.6); sailShape.lineTo(0, 0);
+    const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape),
+      new THREE.MeshBasicMaterial({ color: 0xfff7e8, side: THREE.DoubleSide }));
+    sail.position.set(0.1, 0.8, 0); boat.add(sail);
+    boat.position.set(250 + i * 45, 0, -90 + i * 85);
+    boat.rotation.y = -0.5 + i * 0.3; scene.add(boat); sailboats.push(boat);
+  }
+  updaters.push(t => { sailboats.forEach((b, i) => { b.position.y = Math.sin(t * 0.7 + i * 2) * 0.25; b.rotation.z = Math.sin(t * 0.5 + i) * 0.03; }); });
+
+  // ----- EMBER BAY billboard (high gantry over the beach road; clear of the chase eyeline) -----
+  const bb = new THREE.Group();
+  const bbTex = signTex("EMBER BAY", "#1c1c28", "#ff5a9a");
+  const bbFace = new THREE.Mesh(new THREE.PlaneGeometry(34, 8.5),
+    new THREE.MeshBasicMaterial({ map: bbTex }));
+  bbFace.position.y = 0; bb.add(bbFace);
+  const bbSub = new THREE.Mesh(new THREE.PlaneGeometry(34, 2.1),
+    new THREE.MeshBasicMaterial({ map: signTex("NEON ROW • OPEN ALL NIGHT", "#1c1c28", "#ffe9a8") }));
+  bbSub.position.y = -5.2; bb.add(bbSub);
+  for (const side of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 13, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2c2c34, roughness: 0.6, metalness: 0.4 }));
+    leg.position.set(side * 15, -11, 0); bb.add(leg);
+  }
+  bb.position.set(180, 17.5, -20); bb.rotation.y = 0; scene.add(bb);
+
+  // ----- street props: benches, bins -----
+  const benchMat = new THREE.MeshStandardMaterial({ color: 0xa86432, roughness: 1 });
+  for (let i = 0; i < 24; i++) {
+    const x = GRID.streets[Math.floor(rnd() * GRID.streets.length)] + (rnd() < 0.5 ? -6.8 : 6.8);
+    const z = (rnd() - 0.5) * 360;
+    const bench = new THREE.Group();
+    const seat = beveledBox(2.2, 0.5, 0.8, 0.15, benchMat); seat.position.y = 0.5; bench.add(seat);
+    const back = beveledBox(2.2, 0.9, 0.18, 0.08, benchMat); back.position.set(0, 1.0, -0.35); bench.add(back);
+    bench.position.set(x, 0, z); bench.rotation.y = rnd() * 6.28; scene.add(bench);
   }
 
-  // ---- minimap painting ----
-  function drawMinimap(ctx2d, size, px, pz, heading, objective, big) {
-    var S = size, sc = S / 560, ox = 240 * sc, oz = 240 * sc;
-    var X = function (x) { return (x + 240) * sc; }, Z = function (z) { return (z + 240) * sc; };
-    ctx2d.clearRect(0, 0, S, S);
-    ctx2d.save();
-    ctx2d.beginPath(); ctx2d.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2); ctx2d.clip();
-    ctx2d.fillStyle = "#1a2438"; ctx2d.fillRect(0, 0, S, S);
-    // sea + beach
-    ctx2d.fillStyle = "#2fb3a3"; ctx2d.fillRect(X(250), 0, S, S);
-    ctx2d.fillStyle = "#f2d8a0"; ctx2d.fillRect(X(205), 0, X(250) - X(205), S);
-    // pastel mosaic blocks
-    blocks.forEach(function (b) {
-      ctx2d.fillStyle = hex(b.color);
-      ctx2d.fillRect(X(b.x0) + 0.5, Z(b.z0) + 0.5, (b.x1 - b.x0) * sc - 1, (b.z1 - b.z0) * sc - 1);
-    });
-    // roads
-    ctx2d.strokeStyle = "#22222e"; ctx2d.lineWidth = Math.max(1, 7 * sc);
-    var lines = roadLines();
-    lines.forEach(function (L) {
-      ctx2d.beginPath(); ctx2d.moveTo(X(L), 0); ctx2d.lineTo(X(L), S); ctx2d.stroke();
-      ctx2d.beginPath(); ctx2d.moveTo(0, Z(L)); ctx2d.lineTo(S, Z(L)); ctx2d.stroke();
-    });
-    // volcano
-    ctx2d.fillStyle = "#4a2c22";
-    ctx2d.beginPath(); ctx2d.moveTo(X(VOLCANO.x), Z(VOLCANO.z - 14)); ctx2d.lineTo(X(VOLCANO.x - 12), Z(VOLCANO.z + 10)); ctx2d.lineTo(X(VOLCANO.x + 12), Z(VOLCANO.z + 10)); ctx2d.closePath(); ctx2d.fill();
-    // objective diamond
-    if (objective) {
-      ctx2d.fillStyle = "#ff2fb3";
-      var ox2 = X(objective.x), oz2 = Z(objective.z), r = big ? 9 : 6;
-      ctx2d.beginPath(); ctx2d.moveTo(ox2, oz2 - r); ctx2d.lineTo(ox2 + r, oz2); ctx2d.lineTo(ox2, oz2 + r); ctx2d.lineTo(ox2 - r, oz2); ctx2d.closePath(); ctx2d.fill();
-      ctx2d.strokeStyle = "#ffffff"; ctx2d.lineWidth = 1.5; ctx2d.stroke();
-    }
-    // player arrow
-    var px2 = X(px), pz2 = Z(pz);
-    ctx2d.save(); ctx2d.translate(px2, pz2); ctx2d.rotate(Math.PI / 2 - heading);
-    ctx2d.fillStyle = "#ffffff"; ctx2d.strokeStyle = "#222"; ctx2d.lineWidth = 1.5;
-    ctx2d.beginPath(); ctx2d.moveTo(0, -8); ctx2d.lineTo(5.5, 6); ctx2d.lineTo(0, 3); ctx2d.lineTo(-5.5, 6); ctx2d.closePath(); ctx2d.fill(); ctx2d.stroke();
-    ctx2d.restore();
-    // north marker
-    ctx2d.fillStyle = "#ffffff"; ctx2d.font = "bold " + (big ? 18 : 12) + "px Arial"; ctx2d.textAlign = "center";
-    ctx2d.fillText("N", S - 14, 20);
-    ctx2d.restore();
-  }
-
-  function build(sc) {
-    scene = sc;
-    buildSky(); buildGround(); buildVolcano(); buildBuildings(); buildProps(); buildGantries();
-  }
-
-  EB.world = {
-    build: build, isOnRoad: isOnRoad, sidewalkPoint: sidewalkPoint, clampToSidewalk: clampToSidewalk,
-    collideCircle: collideCircle, districtAt: districtAt, streetAt: streetAt, drawMinimap: drawMinimap,
-    colliders: colliders, blocks: blocks, VOLCANO: VOLCANO, billboard: function () { return billboardMesh; },
-    smokePuffs: smokePuffs, sailboats: sailboats, groundCanvas: function () { return groundCanvas; }
-  };
-})();
+  return { updaters, buildings, palmSpots, colliders, sailboats };
+}
