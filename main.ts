@@ -1,33 +1,10 @@
-// EMBER BAY — Heat Line: static server for the browser game.
-// Serves game/ on http://localhost:8080 (index.html at /).
-// Run: node main.ts  (node 22 runs .ts directly)
-import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+// EMBER BAY — Heat Line. Round 5, written from zero.
+// Static file server for the game/ directory (kit level 38 entrypoint).
+// Usage: deno run --allow-net --allow-read main.ts   (or: node --experimental-strip-types main.ts)
+import { serveDir } from "jsr:@std/http/file-server";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(__dirname, "game");
-const PORT = Number(process.env.PORT || 8080);
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".jpg": "image/jpeg",
-  ".png": "image/png",
-  ".json": "application/json",
-};
+const PORT = 8080;
+const ROOT = new URL("./game/", import.meta.url).pathname;
 
-const server = http.createServer((req, res) => {
-  const url = decodeURIComponent((req.url || "/").split("?")[0]);
-  const fp = path.join(ROOT, url === "/" ? "index.html" : url);
-  if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("not found");
-    return;
-  }
-  res.writeHead(200, { "Content-Type": MIME[path.extname(fp)] || "application/octet-stream" });
-  fs.createReadStream(fp).pipe(res);
-});
-
-server.listen(PORT, () => console.log("EMBER BAY running at http://localhost:" + PORT + "/"));
+console.log(`EMBER BAY — Heat Line serving ${ROOT} on http://localhost:${PORT}`);
+Deno.serve({ port: PORT }, (req) => serveDir(req, { fsRoot: ROOT, showDirListing: false }));
