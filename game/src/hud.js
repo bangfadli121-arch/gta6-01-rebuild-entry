@@ -15,9 +15,11 @@ export class HUD {
     this.staticBig = null;
   }
 
-  // Pre-render the static city map once (streets, blocks, water, beach,
-  // districts, volcano). Per-frame we only draw the player arrow +
-  // objective line on top of it.
+  // Pre-render the static city map once (streets, blocks, water, beach).
+  // Top 1-2 style: NEAR-BLACK land, dark sea + dark sand, BRIGHT street
+  // lines, white player arrow, colored icons. NO pastel district blocks —
+  // those made the old map a colorful mosaic with a grid (fadli: "map nya
+  // bisa ga di gnti kyk top 1-2").
   buildStaticMap(size) {
     const c = document.createElement("canvas");
     c.width = size; c.height = size;
@@ -26,23 +28,22 @@ export class HUD {
     const scale = W / 560;
     const px = (x) => W / 2 + x * scale;
     const py = (z) => H / 2 + z * scale;
-    ctx.fillStyle = "#2fb5a8"; ctx.fillRect(px(CFG.seaX), 0, W - px(CFG.seaX), H);
-    ctx.fillStyle = "#e8cf9a"; ctx.fillRect(px(CFG.beachX), 0, px(CFG.seaX) - px(CFG.beachX), H);
-    // dark land base so the street grid pops (top 1-2 minimaps are dark
-    // with bright streets, not a bright green mosaic)
-    ctx.fillStyle = "#33523f"; ctx.fillRect(0, 0, px(CFG.beachX), H);
-    for (const d of CFG.districts) {
-      ctx.fillStyle = "#" + d.base.toString(16).padStart(6, "0");
-      ctx.globalAlpha = 0.7;
-      ctx.fillRect(px(d.cx - d.w / 2), py(d.cz - d.d / 2), d.w * scale, d.d * scale);
-      ctx.globalAlpha = 1;
-    }
-    ctx.strokeStyle = "#d8d8c8"; ctx.lineWidth = Math.max(1.5, size / 90);
+    // near-black land base
+    ctx.fillStyle = "#10151a"; ctx.fillRect(0, 0, W, H);
+    // dark sea + dark sand on the east edge (kept dark so streets pop)
+    ctx.fillStyle = "#0d3f45"; ctx.fillRect(px(CFG.seaX), 0, W - px(CFG.seaX), H);
+    ctx.fillStyle = "#54452a"; ctx.fillRect(px(CFG.beachX), 0, px(CFG.seaX) - px(CFG.beachX), H);
+    // bright street grid — clipped to the land (roads do not run into the sea)
+    ctx.strokeStyle = "#e8e8d8"; ctx.lineWidth = Math.max(2.5, size / 55);
+    ctx.lineCap = "round";
     for (let i = -5; i <= 5; i++) {
       const r = i * CFG.roadSpacing;
-      ctx.beginPath(); ctx.moveTo(px(r), 0); ctx.lineTo(px(r), H); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, py(r)); ctx.lineTo(W, py(r)); ctx.stroke();
+      if (r < CFG.beachX) { ctx.beginPath(); ctx.moveTo(px(r), 0); ctx.lineTo(px(r), H); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(0, py(r)); ctx.lineTo(px(CFG.beachX), py(r)); ctx.stroke();
     }
+    // coastal road (the main drag) in gold so it reads as the spine
+    ctx.strokeStyle = "#ffd76a"; ctx.lineWidth = Math.max(2, size / 70);
+    ctx.beginPath(); ctx.moveTo(px(168), 0); ctx.lineTo(px(168), H); ctx.stroke();
     ctx.fillStyle = "#6b3a26";
     ctx.beginPath(); ctx.arc(px(CFG.volcano.x), py(CFG.volcano.z), Math.max(4, size / 22), 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#ff5a1e";
@@ -127,16 +128,41 @@ export class HUD {
       ctx.save(); ctx.translate(px(o.x), py(o.z)); ctx.rotate(Math.PI / 4);
       ctx.fillRect(-4, -4, 8, 8); ctx.restore();
     }
+    // race checkpoints (mission 3): yellow diamonds, the NEXT one bigger
+    const gates = this.state.raceGates;
+    if (gates && gates.length && s.mission === 3) {
+      gates.forEach((g, i) => {
+        const next = i === (s.raceIdx || 0);
+        ctx.fillStyle = next ? "#ffd76a" : "#2ec4b6";
+        const sz = next ? 5 : 3.5;
+        ctx.save(); ctx.translate(px(g.x), py(g.z)); ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-sz, -sz, sz * 2, sz * 2); ctx.restore();
+      });
+    }
+    // police: blue dots with a white ring (patrol + chase cars)
+    for (const p of (s.policePos || [])) {
+      ctx.fillStyle = "#2050ff"; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(px(p.x), py(p.z), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    // helicopter: white dot with a dark ring
+    if (s.heliPos) {
+      ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#1c2733"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(px(s.heliPos.x), py(s.heliPos.z), 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
     // player arrow (rotates with heading)
     ctx.save();
     ctx.translate(px(s.playerX), py(s.playerZ));
     ctx.rotate(s.heading || 0);
     ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#1c2733"; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(0, 3); ctx.lineTo(-5, 6); ctx.closePath();
+    ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(6, 7); ctx.lineTo(0, 3.5); ctx.lineTo(-6, 7); ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = "#1c2733"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
-    ctx.fillText("N", W - 12, 14);
+    // compass N: dark badge with gold ring + white letter, INSIDE the
+    // round clip (the old text sat at the corner and was clipped away)
+    ctx.fillStyle = "#10151a"; ctx.strokeStyle = "#ffd76a"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(W - 32, 32, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("N", W - 32, 32.5);
   }
 
   drawBigMap() {
@@ -166,7 +192,9 @@ export class HUD {
     ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = "#1c2733"; ctx.font = "bold 13px Arial"; ctx.textAlign = "center";
+    // district names + title in LIGHT text (the map is dark now — the old
+    // dark text was invisible on it)
+    ctx.fillStyle = "#e8e8d8"; ctx.font = "bold 13px Arial"; ctx.textAlign = "center";
     for (const d of CFG.districts) ctx.fillText(d.name, W / 2 + d.cx * scale, H / 2 + d.cz * scale);
     ctx.font = "bold 15px Arial"; ctx.fillText("EMBER BAY", W / 2, 22);
   }
