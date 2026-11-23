@@ -1,116 +1,173 @@
-// EMBER BAY HUD + maps — round 5, written from zero.
-// Minimap is a readable little city map (streets + blocks + water + objective
-// line), NOT a mosaic of squares — like the top entries. Pause map is the full
-// island with district labels.
-import { GRID, WEAPONS, RANKS, rankFor, districtAt } from "./config.js";
+// hud.js — HUD, mission card, weapon bar, toast, prompt, and a canvas
+// minimap drawn as a real little city map (streets + blocks + water +
+// beach + district colors + pink objective line + player arrow).
+import { CFG } from "./config.js";
 
-const MAP_HALF = 230; // world extent drawn on the map
-function toMap(x, z, size) {
-  const s = size / (MAP_HALF * 2);
-  return [(x + MAP_HALF) * s, (z + MAP_HALF) * s];
-}
-function drawBaseMap(ctx, size, labels) {
-  ctx.clearRect(0, 0, size, size);
-  // land
-  ctx.fillStyle = "#e8e2d2"; ctx.fillRect(0, 0, size, size);
-  // sea (east) + beach strip
-  const [bx] = toMap(200, 0, size);
-  ctx.fillStyle = "#2fa8a0"; ctx.fillRect(bx, 0, size - bx, size);
-  ctx.fillStyle = "#e8cf9e"; ctx.fillRect(bx - 3, 0, 5, size);
-  // blocks
-  ctx.fillStyle = "#c9c2ae";
-  for (let i = 0; i < GRID.streets.length - 1; i++) {
-    for (let j = 0; j < GRID.streets.length - 1; j++) {
-      const [x0, z0] = toMap(GRID.streets[i] + 9, GRID.streets[j] + 9, size);
-      const [x1, z1] = toMap(GRID.streets[i + 1] - 9, GRID.streets[j + 1] - 9, size);
-      ctx.fillRect(x0, z0, x1 - x0, z1 - z0);
-    }
+export class HUD {
+  constructor(state) {
+    this.state = state;
+    this.mapCanvas = document.getElementById("minimap");
+    this.mapCtx = this.mapCanvas.getContext("2d");
+    this.bigCanvas = document.getElementById("bigmap");
+    this.bigCtx = this.bigCanvas ? this.bigCanvas.getContext("2d") : null;
+    this.lastObj = null;
+    this.staticMap = null; // offscreen: streets + blocks + water + beach, drawn once
+    this.staticBig = null;
   }
-  // streets
-  ctx.strokeStyle = "#3a3f47"; ctx.lineWidth = Math.max(1, size / 160);
-  for (const s of GRID.streets) {
-    const [x] = toMap(s, 0, size); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
-    const [, z] = toMap(0, s, size); ctx.beginPath(); ctx.moveTo(0, z); ctx.lineTo(size, z); ctx.stroke();
-  }
-  // volcano
-  const [vx, vz] = toMap(-300, -300, size);
-  ctx.fillStyle = "#4a2c22";
-  ctx.beginPath(); ctx.moveTo(vx - 9, vz + 7); ctx.lineTo(vx, vz - 9); ctx.lineTo(vx + 9, vz + 7); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#ff5a1e";
-  ctx.beginPath(); ctx.moveTo(vx - 3, vz - 3); ctx.lineTo(vx, vz - 9); ctx.lineTo(vx + 3, vz - 3); ctx.closePath(); ctx.fill();
-  if (labels) {
-    ctx.fillStyle = "#2c2c34"; ctx.font = `bold ${Math.max(9, size / 22)}px Arial`;
-    ctx.textAlign = "center";
-    const spots = [[-150, 0, "PORTSIDE"], [-60, -110, "OLD MARKET"], [0, 40, "NEON ROW"],
-      [0, 150, "PALM HEIGHTS"], [-150, 150, "CINDER DOCKS"], [150, 0, "SUNSET BEACH"]];
-    for (const [x, z, name] of spots) {
-      const [mx, mz] = toMap(x, z, size);
-      ctx.fillText(name, mx, mz);
-    }
-  }
-}
 
-export function makeHud() {
-  const $ = id => document.getElementById(id);
-  const mini = $("minimap"); const mctx = mini.getContext("2d");
-  const big = $("pausemap"); const bctx = big ? big.getContext("2d") : null;
-  let fps = 0, fpsCount = 0, fpsT0 = performance.now();
-  return {
-    update(dt, state, missionInfo, target, playerHeading) {
-      fpsCount++;
-      const now = performance.now();
-      if (now - fpsT0 >= 500) { fps = Math.round(fpsCount * 1000 / (now - fpsT0)); fpsCount = 0; fpsT0 = now; }
-      $("cash").textContent = "$" + state.cash.toLocaleString("en-US");
-      $("rank").textContent = rankFor(state.respect);
-      $("hpbar").style.width = Math.max(0, state.hp) + "%";
-      $("weapon").textContent = WEAPONS[state.weapon - 1].name;
-      $("stars").textContent = "★".repeat(state.wanted) + "☆".repeat(5 - state.wanted);
-      $("loc").textContent = `${districtAt(state.playerX, state.playerZ).name} · ${state.streetName || "Coastal Rd"}`;
-      $("radio").textContent = (state.radioOn ? state.stationName : "RADIO OFF") + " [R]";
-      $("speed").textContent = Math.round(Math.abs(state.speed) * 2.4);
-      // weapon bar
-      document.querySelectorAll("#weapons .wslot").forEach((el, i) => {
-        const w = WEAPONS[i];
-        el.classList.toggle("active", i === state.weapon - 1);
-        el.querySelector(".wlock").textContent = state.respect >= w.lock ? w.name : w.name + " LOCKED";
-      });
-      // mission card
-      $("job").textContent = `JOB ${state.mission}/8`;
-      $("mtitle").textContent = missionInfo.title;
-      $("mobj").textContent = missionInfo.obj;
-      $("mstage").textContent = missionInfo.stage;
-      $("mnext").textContent = "NEXT — " + missionInfo.next;
-      // minimap: street map + player arrow + objective line
-      const size = mini.width;
-      drawBaseMap(mctx, size, false);
-      if (target) {
-        const [tx, tz] = toMap(target.x, target.z, size);
-        const [px, pz] = toMap(state.playerX, state.playerZ, size);
-        mctx.strokeStyle = "#ff2e88"; mctx.lineWidth = 2; mctx.setLineDash([5, 4]);
-        mctx.beginPath(); mctx.moveTo(px, pz); mctx.lineTo(tx, tz); mctx.stroke();
-        mctx.setLineDash([]);
-        mctx.fillStyle = "#ff2e88";
-        mctx.beginPath(); mctx.moveTo(tx, tz - 6); mctx.lineTo(tx + 5, tz); mctx.lineTo(tx, tz + 6); mctx.lineTo(tx - 5, tz); mctx.closePath(); mctx.fill();
-      }
-      const [px, pz] = toMap(state.playerX, state.playerZ, size);
-      mctx.save(); mctx.translate(px, pz); mctx.rotate(Math.atan2(Math.sin(playerHeading), Math.cos(playerHeading)) * 0 + playerHeading);
-      mctx.fillStyle = "#ffffff"; mctx.strokeStyle = "#1c1c28"; mctx.lineWidth = 1.5;
-      mctx.beginPath(); mctx.moveTo(0, -7); mctx.lineTo(5, 6); mctx.lineTo(0, 3); mctx.lineTo(-5, 6); mctx.closePath(); mctx.fill(); mctx.stroke();
-      mctx.restore();
-      // compass
-      $("compass").textContent = "N";
-      // pause map (full island, labels)
-      if (bctx && !$("pause").classList.contains("hidden")) {
-        drawBaseMap(bctx, big.width, true);
-        const [ppx, ppz] = toMap(state.playerX, state.playerZ, big.width);
-        bctx.fillStyle = "#ff2e88";
-        bctx.beginPath(); bctx.arc(ppx, ppz, 7, 0, 7); bctx.fill();
-        bctx.strokeStyle = "#fff"; bctx.lineWidth = 2; bctx.beginPath(); bctx.arc(ppx, ppz, 7, 0, 7); bctx.stroke();
-      }
-    },
-    toast(msg) {
-      const el = $("toast"); el.textContent = msg; el.classList.remove("hidden");
-      clearTimeout(el._t); el._t = setTimeout(() => el.classList.add("hidden"), 2600);
-    },
-  };
+  // Pre-render the static city map once (streets, blocks, water, beach,
+  // districts, volcano). Per-frame we only draw the player arrow +
+  // objective line on top of it.
+  buildStaticMap(size) {
+    const c = document.createElement("canvas");
+    c.width = size; c.height = size;
+    const ctx = c.getContext("2d");
+    const W = size, H = size;
+    const scale = W / 560;
+    const px = (x) => W / 2 + x * scale;
+    const py = (z) => H / 2 + z * scale;
+    ctx.fillStyle = "#2fb5a8"; ctx.fillRect(px(CFG.seaX), 0, W - px(CFG.seaX), H);
+    ctx.fillStyle = "#e8cf9a"; ctx.fillRect(px(CFG.beachX), 0, px(CFG.seaX) - px(CFG.beachX), H);
+    // dark land base so the street grid pops (top 1-2 minimaps are dark
+    // with bright streets, not a bright green mosaic)
+    ctx.fillStyle = "#33523f"; ctx.fillRect(0, 0, px(CFG.beachX), H);
+    for (const d of CFG.districts) {
+      ctx.fillStyle = "#" + d.base.toString(16).padStart(6, "0");
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(px(d.cx - d.w / 2), py(d.cz - d.d / 2), d.w * scale, d.d * scale);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = "#d8d8c8"; ctx.lineWidth = Math.max(1.5, size / 90);
+    for (let i = -5; i <= 5; i++) {
+      const r = i * CFG.roadSpacing;
+      ctx.beginPath(); ctx.moveTo(px(r), 0); ctx.lineTo(px(r), H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, py(r)); ctx.lineTo(W, py(r)); ctx.stroke();
+    }
+    ctx.fillStyle = "#6b3a26";
+    ctx.beginPath(); ctx.arc(px(CFG.volcano.x), py(CFG.volcano.z), Math.max(4, size / 22), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ff5a1e";
+    ctx.beginPath(); ctx.arc(px(CFG.volcano.x), py(CFG.volcano.z), Math.max(2, size / 45), 0, Math.PI * 2); ctx.fill();
+    return c;
+  }
+
+  rankName() {
+    let name = CFG.ranks[0].name;
+    for (const r of CFG.ranks) if (this.state.respect >= r.at) name = r.name;
+    return name;
+  }
+
+  districtName(x, z) {
+    for (const d of CFG.districts) if (Math.abs(x - d.cx) < d.w / 2 && Math.abs(z - d.cz) < d.d / 2) return d.name;
+    if (x > CFG.beachX) return "Sunset Beach";
+    return "Ember Bay";
+  }
+
+  setText(id, txt) { const el = document.getElementById(id); if (el && el.textContent !== txt) el.textContent = txt; }
+  show(id, on) { const el = document.getElementById(id); if (el) el.classList.toggle("hidden", !on); }
+
+  update() {
+    const s = this.state;
+    this.setText("cash", "$" + s.cash);
+    this.setText("rank", this.rankName());
+    this.setText("loc", `${this.districtName(s.playerX, s.playerZ)} · ${s.streetName || "Coastal Rd"}`);
+    this.setText("speed", Math.round(Math.abs(s.speed) * 2.2) + "");
+    this.setText("hp-fill", "");
+    const hp = document.getElementById("hp-fill");
+    if (hp) hp.style.width = s.hp + "%";
+    // stars
+    const stars = document.getElementById("stars");
+    if (stars) stars.textContent = "★".repeat(s.wanted) + "☆".repeat(5 - s.wanted);
+    // weapon bar
+    const bar = document.getElementById("weapons");
+    if (bar) {
+      bar.innerHTML = CFG.weapons.map((w, i) => {
+        const locked = s.respect < w.lock;
+        const cur = i === s.weaponIdx;
+        return `<div class="wpn${cur ? " cur" : ""}${locked ? " locked" : ""}"><b>${w.key}</b><span>${w.name}</span>${locked ? "<i>LOCKED</i>" : ""}</div>`;
+      }).join("");
+    }
+    // mission card
+    const m = CFG.missions[Math.min(s.mission, 8) - 1];
+    this.setText("job-num", `JOB ${Math.min(s.mission, 8)}/8`);
+    this.setText("job-title", m.title);
+    this.setText("job-obj", m.obj);
+    this.setText("job-next", "NEXT — " + m.next);
+    const segs = document.getElementById("job-segs");
+    if (segs) segs.innerHTML = Array.from({ length: 4 }, (_, i) => `<span class="${i < (s.raceIdx || 0) ? "on" : ""}"></span>`).join("");
+    this.setText("job-stage", s.mission === 3 ? `GATE ${s.raceIdx || 0}/4` : s.mission === 5 ? `ESCAPE ${Math.ceil(s.escapeLeft || 0)}s` : (s.mission === 4 || s.mission === 7) ? `CRATE ${s.cratesGot || 0}/3` : "");
+    // toast
+    if (s.toast) {
+      this.setText("toast", s.toast);
+      this.show("toast", true);
+      s.toastTimer = (s.toastTimer || 0) + 1;
+      if (s.toastTimer > 240) { s.toast = ""; s.toastTimer = 0; this.show("toast", false); }
+    }
+    this.drawMinimap();
+  }
+
+  // draw the minimap: static city map + live objective line + player arrow
+  drawMinimap() {
+    const s = this.state;
+    const ctx = this.mapCtx;
+    if (!ctx) return;
+    if (!this.staticMap) this.staticMap = this.buildStaticMap(this.mapCanvas.width);
+    const W = this.mapCanvas.width, H = this.mapCanvas.height;
+    const scale = W / 560;
+    const px = (x) => W / 2 + x * scale;
+    const py = (z) => H / 2 + z * scale;
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(this.staticMap, 0, 0);
+    // objective: pink dashed line + diamond
+    const o = this.state.objective;
+    if (o) {
+      ctx.strokeStyle = "#ff2ea6"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(px(s.playerX), py(s.playerZ)); ctx.lineTo(px(o.x), py(o.z)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#ff2ea6";
+      ctx.save(); ctx.translate(px(o.x), py(o.z)); ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-4, -4, 8, 8); ctx.restore();
+    }
+    // player arrow (rotates with heading)
+    ctx.save();
+    ctx.translate(px(s.playerX), py(s.playerZ));
+    ctx.rotate(s.heading || 0);
+    ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#1c2733"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(0, 3); ctx.lineTo(-5, 6); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "#1c2733"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
+    ctx.fillText("N", W - 12, 14);
+  }
+
+  drawBigMap() {
+    if (!this.bigCtx) return;
+    if (!this.staticBig) this.staticBig = this.buildStaticMap(this.bigCanvas.width);
+    const ctx = this.bigCtx;
+    const W = this.bigCanvas.width, H = this.bigCanvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(this.staticBig, 0, 0);
+    const scale = W / 560;
+    const px = (x) => W / 2 + x * scale;
+    const py = (z) => H / 2 + z * scale;
+    const s = this.state;
+    const o = s.objective;
+    if (o) {
+      ctx.strokeStyle = "#ff2ea6"; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(px(s.playerX), py(s.playerZ)); ctx.lineTo(px(o.x), py(o.z)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#ff2ea6";
+      ctx.save(); ctx.translate(px(o.x), py(o.z)); ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+    }
+    ctx.save();
+    ctx.translate(px(s.playerX), py(s.playerZ));
+    ctx.rotate(s.heading || 0);
+    ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#1c2733"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "#1c2733"; ctx.font = "bold 13px Arial"; ctx.textAlign = "center";
+    for (const d of CFG.districts) ctx.fillText(d.name, W / 2 + d.cx * scale, H / 2 + d.cz * scale);
+    ctx.font = "bold 15px Arial"; ctx.fillText("EMBER BAY", W / 2, 22);
+  }
 }
