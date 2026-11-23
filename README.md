@@ -1,21 +1,41 @@
 # EMBER BAY — Heat Line
 
-![gta6-01](https://make.fun/badge/gta6-01.svg)
-![rank](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/rank.svg)
-![reward](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/reward.svg)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/bangfadli121-arch/gta6-01-rebuild-entry/reward.svg)](https://make.fun/bounty/gta6-01)
 
-Open-world crime game for the [gta6-01 bounty](https://make.fun/bounty/gta6-01): a golden-hour island city, eight story missions, police chases with roadblocks and a helicopter, a Nissan Skyline GT-R, street races, a living city and a 3-station synth radio.
+An open-world crime game for the [make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01).
+
+**EMBER BAY** is a fictional island city at golden hour. You are Kade Venn, a driver
+back on the island with one car — a blue Nissan Skyline GT-R — and eight jobs to run
+for Mara Solis, Dario Flint and June Park. Outrun the police, dodge roadblocks, lose
+the helicopter, win the Neon Row race, and steal the Ember GT.
 
 ## Play
 
-Serve `game/` on any static server (or run `main.ts` with Deno — it serves `game/` on :8080), then open `index.html`.
+- 8 story missions, police chases, roadblocks (3★) and a helicopter (4★)
+- Weapon wheel (Fists / P9 / SMG / Rifle + BAT / SHOTGUN / SNIPER locked by respect)
+- Respect ranks: Street Rat → Runner → Hustler → Kingpin → Ember King
+- Living city: 22 traffic cars, 60 pedestrians, 6 districts, radio, garage, saves
+- **Controls:** WASD move/drive · E enter · F carjack · Q weapons · G garage · R radio · M map · P save
 
-- WASD move / drive · E enter car · F carjack · Q weapons (1–7) · G garage · R radio · M map · P save
+## Run it
 
-## The game
+```sh
+# Deno (the grader entrypoint)
+deno run --allow-read --allow-net main.ts
+# or any static server:
+npx serve game
+```
 
-- **City:** Ember Bay — six districts (Portside, Old Market, Neon Row, Palm Heights, Cinder Docks, Sunset Beach), ~120 buildings with beveled edges, glowing windows, awnings and big readable signs, a lava volcano, a beach with palms, umbrellas and sailboats.
-- **Missions (8):** First Wheels · Portside Pickup · Neon Row Nights (race) · Dockside Trouble · Getaway Driver · Air One (helicopter) · Cinder Run · The Ember Crown.
-- **Systems:** wanted 1–5 stars, police pursuit + roadblocks (3★) + helicopter with spotlight (4★), weapon wheel, respect ranks Street Rat → Ember King, localStorage saves, garage upgrades, street races, traffic + pedestrians, pause map.
+Then open http://localhost:8080.
 
-Built from zero in a recorded make.fun session. Three.js r160 (vendored in `game/vendor/three.min.js`).
+## Tech
+
+Three.js r160 (vendored), vanilla JS modules, no build step. Buildings and
+cars use Kenney City/Car Kit models (CC0, vendored as GLB); everything else
+is procedural (canvas textures + RoundedBox geometry) — no external assets.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
