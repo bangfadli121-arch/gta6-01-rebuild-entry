@@ -299,17 +299,26 @@ function updateTraffic(dt) {
   // traffic + police patrol share the lane loop; patrol light bars flash
   for (const c of traffic.concat(patrol)) {
     const u = c.userData;
-    const step = u.speed * dt * u.dir;
-    if (u.vertical) {
-      c.position.z += step;
-      if (c.position.z > 205) c.position.z = -205;
-      if (c.position.z < -205) c.position.z = 205;
-      c.rotation.y = u.dir > 0 ? 0 : Math.PI;
+    if (u.escort) {
+      // staged-shot police escort: hold a fixed offset ahead of the hero
+      // on the road shoulder, facing the chase camera (south), light bar
+      // flashing (fadli: "polisi heli mana"). It tracks the hero, so the
+      // settle distance can't strand it behind the camera.
+      c.position.set(state.playerX + 6, 0, state.playerZ - 15);
+      c.rotation.y = 0;
     } else {
-      c.position.x += step;
-      if (c.position.x > 205) c.position.x = -205;
-      if (c.position.x < -205) c.position.x = 205;
-      c.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      const step = u.speed * dt * u.dir;
+      if (u.vertical) {
+        c.position.z += step;
+        if (c.position.z > 205) c.position.z = -205;
+        if (c.position.z < -205) c.position.z = 205;
+        c.rotation.y = u.dir > 0 ? 0 : Math.PI;
+      } else {
+        c.position.x += step;
+        if (c.position.x > 205) c.position.x = -205;
+        if (c.position.x < -205) c.position.x = 205;
+        c.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      }
     }
     for (const wh of c.userData.wheels || []) wh.rotation.x += u.speed * dt * 2.2 * u.dir;
     const bar = c.userData.lightBar;
@@ -400,13 +409,29 @@ const api = {
     // Offset +0.55 rad east of straight-ahead: dead-ahead puts the heli
     // right over the EMBER BAY billboard (same x as the gantry); ~10m to
     // the side keeps it fully in frame AND the billboard readable.
+    // Close + low (radius 12, height 9m): the heli reads BIG in frame.
     combat.heliAngle = -Math.PI / 2 + 0.55;
     if (combat.heli) {
       combat.heli.position.set(
-        state.playerX + Math.cos(combat.heliAngle) * 20,
-        13.5,
-        state.playerZ + Math.sin(combat.heliAngle) * 20 - 8);
+        state.playerX + Math.cos(combat.heliAngle) * 12,
+        9,
+        state.playerZ + Math.sin(combat.heliAngle) * 12 - 8);
     }
+  },
+  placePoliceForShot() {
+    // Escort the first patrol cruiser: hold it on the coastal road
+    // shoulder, 15m ahead of the hero and facing the chase camera
+    // (south), light bar flashing — so a police car is unmistakable in
+    // the drive/chase frame (fadli: "polisi heli mana"). The escort
+    // tracks the hero (see updateTraffic), so the settle distance can't
+    // strand it behind the camera. Only used by staged shots; normal
+    // gameplay patrols keep moving.
+    const p = patrol[0];
+    if (!p) return;
+    p.userData.escort = true;
+    p.userData.speed = 0; p.userData.dir = 1; p.userData.vertical = true; p.userData.lane = 174;
+    p.position.set(174, 0, state.playerZ - 15);
+    p.rotation.y = 0;
   },
   info() {
     let meshes = 0; scene.traverse((o) => { if (o.isMesh) meshes++; });
