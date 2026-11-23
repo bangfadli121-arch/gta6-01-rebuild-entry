@@ -1,344 +1,376 @@
-// EMBER BAY main — round 5, written from zero.
-// Boot, game loop, camera, traffic, carjacking, garage, start/pause.
-const THREE = window.THREE;
-import { GRID, PALETTE, districtAt, nearestRoadPoint } from "./config.js";
+// main.js — EMBER BAY game loop: player, driving, traffic, cameras,
+// start screen, pause map, garage, radio, save, and the __ember test API.
+// Assets (Kenney GLBs, CC0) are loaded first; every builder has a
+// procedural fallback if a GLB fails to load.
+import * as THREE from "three";
+import { CFG } from "./config.js";
 import { buildWorld } from "./world.js";
-import { makeSkyline, makeTrafficCar, makeCarState, updateCar } from "./vehicles.js";
-import { makeHero, animateWalk, makePedestrians, updatePedestrians } from "./people.js";
-import { makeMissionSystem } from "./missions.js";
-import { makeCombat } from "./combat.js";
-import { makeAudio } from "./audio.js";
-import { makeInput } from "./input.js";
-import { saveGame, loadGame, hasSave } from "./save.js";
-import { makeHud } from "./hud.js";
+import { buildSkyline, buildTrafficCar, buildPoliceCar } from "./vehicles.js";
+import { PedCrowd, buildHero } from "./people.js";
+import { Missions } from "./missions.js";
+import { Combat } from "./combat.js";
+import { Radio } from "./audio.js";
+import { Input } from "./input.js";
+import { HUD } from "./hud.js";
+import { saveGame, loadGame } from "./save.js";
 import { stageShot } from "./shots.js";
+import { loadGLB, CARS, BUILDINGS, PROPS } from "./assets.js";
 
-const params = new URLSearchParams(location.search);
-const SHOT = params.get("shot") || null;
-const AUTOSTART = params.get("autostart") === "1";
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-document.getElementById("game").appendChild(renderer.domElement);
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 3000);
-
-const world = buildWorld(scene);
-const input = makeInput();
-const audio = makeAudio();
-const hud = makeHud();
+const $ = (id) => document.getElementById(id);
 
 const state = {
-  cash: 250, respect: 0, hp: 100, wanted: 0, mission: 1, weapon: 1,
-  playerX: 24, playerZ: 164, heading: 0, speed: 0, inCar: false,
-  radioOn: false, stationName: "EMBER FM", calmTimer: 0, ammoFlash: 0,
-  streetName: "Coastal Rd", paused: false, started: false,
-  heroCarPos: { x: 28, z: 160 },
-};
-window.__ember = { state, errors: [], ready: false, fps: 0, scene, renderer,
-  info() { const i = renderer.info.render; return { calls: i.calls, triangles: i.triangles }; },
-  warp(x, z) { state.playerX = x; state.playerZ = z; player.position.set(x, 0, z); },
-  nearestCarDist() {
-    const px = state.playerX, pz = state.playerZ;
-    let bd = Math.hypot(heroCar.position.x - px, heroCar.position.z - pz);
-    for (const t of traffic) {
-      if (t.taken) continue;
-      bd = Math.min(bd, Math.hypot(t.mesh.position.x - px, t.mesh.position.z - pz));
-    }
-    return bd;
-  },
+  started: false, cash: 250, respect: 0, mission: 1, weaponIdx: 0, weapon: "FISTS",
+  wanted: 0, wantedTimer: 0, hp: 100, playerX: 24, playerZ: 164, heading: 0,
+  speed: 0, inCar: false, raceIdx: 0, cratesGot: 0, escapeLeft: 0,
+  radioOn: false, stationName: "EMBER FM", toast: "", toastTimer: 0,
+  objective: null, streetName: "Coastal Rd", heroCarPos: { x: 24, z: 164 },
 };
 
-// ----- hero car + player -----
-const heroCar = makeSkyline();
-heroCar.position.set(state.heroCarPos.x, 0, state.heroCarPos.z);
-heroCar.rotation.y = Math.PI / 2;
-scene.add(heroCar);
-const carState = makeCarState(state.heroCarPos.x, state.heroCarPos.z, Math.PI / 2);
-const player = makeHero();
-player.position.set(state.playerX, 0, state.playerZ);
-scene.add(player);
+const errors = [];
+window.addEventListener("error", (e) => errors.push(String(e.message || e.error)));
 
-// ----- traffic (22 rounded cars on the street grid) -----
-const TRAFFIC_COLORS = [0xe85a5a, 0x5a8fd6, 0xffe3a3, 0x7ed957, 0xb06ad6, 0xf5f5f0, 0xff8c1a, 0x2ec4b6];
-const traffic = [];
-for (let i = 0; i < 22; i++) {
-  const mesh = makeTrafficCar(TRAFFIC_COLORS[i % TRAFFIC_COLORS.length]);
-  const horiz = Math.random() < 0.5;
-  const street = GRID.streets[Math.floor(Math.random() * GRID.streets.length)];
-  const along = (Math.random() - 0.5) * 380;
-  const car = {
-    mesh, horiz, street, along, dir: Math.random() < 0.5 ? 1 : -1,
-    speed: 7 + Math.random() * 5, taken: false,
+let renderer, scene, camera, clock;
+let world, hero, heroCar, crowd, missions, combat, hud, radio, input;
+let traffic = [];
+let camMode = "foot";
+let dragYaw = 0;
+let fpsAcc = 0, fpsN = 0, fps = 0;
+let paused = false;
+let assets = {};
+
+function streetNameAt(x, z) {
+  if (x > 150) return "Coastal Rd";
+  if (z > 100) return "Cinder Rd";
+  for (const d of CFG.districts) if (Math.abs(x - d.cx) < d.w / 2 && Math.abs(z - d.cz) < d.d / 2) return d.name + " Ave";
+  return "Ember Blvd";
+}
+
+async function loadAssets() {
+  const jobs = [];
+  const put = (obj, key, path) => jobs.push(loadGLB(path).then((m) => { obj[key] = m; }));
+  assets.cars = {};
+  for (const [k, p] of Object.entries(CARS)) put(assets.cars, k, p);
+  assets.buildings = {};
+  for (const [k, list] of Object.entries(BUILDINGS)) {
+    assets.buildings[k] = [];
+    list.forEach((p, i) => jobs.push(loadGLB(p).then((m) => { assets.buildings[k][i] = m; })));
+  }
+  assets.props = {};
+  for (const [k, p] of Object.entries(PROPS)) put(assets.props, k, p);
+  await Promise.all(jobs);
+  // drop failed loads
+  for (const k of Object.keys(assets.buildings)) assets.buildings[k] = assets.buildings[k].filter(Boolean);
+  const loaded = Object.values(assets.cars).filter(Boolean).length + Object.values(assets.buildings).flat().length + Object.values(assets.props).filter(Boolean).length;
+  console.log("assets loaded:", loaded);
+  return assets;
+}
+
+async function init() {
+  const params = new URLSearchParams(location.search);
+  // ?noaa=1 disables antialiasing (software-rendered test harness runs
+  // much faster without MSAA; the real game keeps AA on by default)
+  const noaa = params.get("noaa") === "1";
+  renderer = new THREE.WebGLRenderer({ antialias: !noaa });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  $("app").appendChild(renderer.domElement);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
+  clock = new THREE.Clock();
+  input = new Input();
+  radio = new Radio();
+  hud = new HUD(state);
+
+  await loadAssets();
+  world = buildWorld(scene, assets);
+
+  // hero character
+  hero = buildHero();
+  hero.position.set(state.playerX, 0, state.playerZ);
+  scene.add(hero);
+
+  // hero Skyline (Kenney race.glb repainted blue, or procedural fallback)
+  heroCar = buildSkyline(assets.cars.race);
+  heroCar.position.set(24, 0, 164);
+  heroCar.rotation.y = Math.PI / 2;
+  scene.add(heroCar);
+
+  // traffic: 22 Kenney cars looping along road lanes (forward +Z)
+  const trafficModels = [assets.cars.sedan, assets.cars.sedanSports, assets.cars.hatchSports, assets.cars.suv, assets.cars.van, assets.cars.taxi, assets.cars.truck].filter(Boolean);
+  for (let i = 0; i < CFG.trafficCount; i++) {
+    const model = trafficModels.length ? trafficModels[i % trafficModels.length] : null;
+    const c = buildTrafficCar(model);
+    const lane = (Math.floor(Math.random() * 11) - 5) * CFG.roadSpacing;
+    const vertical = Math.random() < 0.5;
+    const off = (Math.random() < 0.5 ? -1 : 1) * 3;
+    const along = (Math.random() * 2 - 1) * 200;
+    c.position.set(vertical ? lane + off : along, 0, vertical ? along : lane + off);
+    c.userData = { vertical, lane: lane + off, dir: Math.random() < 0.5 ? 1 : -1, speed: 6 + Math.random() * 6 };
+    scene.add(c); traffic.push(c);
+  }
+
+  crowd = new PedCrowd(scene);
+  missions = new Missions(scene, state);
+  combat = new Combat(scene, state, () => buildPoliceCar(assets.cars.police));
+  missions.setMission(1);
+  updateObjective();
+
+  // start screen
+  $("start-btn").addEventListener("click", () => startGame(false));
+  $("continue-btn").addEventListener("click", () => startGame(true));
+  if (!loadGame()) $("continue-btn").style.display = "none";
+  input.onKey = (code) => {
+    if (!state.started) return;
+    if (code === "KeyM" || code === "Escape") togglePause();
+    if (code === "KeyR") { state.radioOn = radio.toggle(); state.stationName = radio.stationName(); state.toast = radio.on ? "Radio: " + radio.stationName() : "Radio off"; }
+    if (code === "KeyN") { if (radio.ctx) radio.ctx.suspend(); state.toast = "Muted"; }
+    if (code === "KeyP") { saveGame(state); state.toast = "Progress saved"; }
+    if (code === "KeyG") { state.toast = "Garage: Skyline tuned +10 respect"; state.respect += 10; }
+    if (code === "KeyQ") { const w = combat.cycleWeapon(); state.toast = "Weapon: " + w; }
   };
-  mesh.position.set(horiz ? along : street, 0, horiz ? street : along);
-  mesh.rotation.y = horiz ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (car.dir > 0 ? 0 : Math.PI);
-  scene.add(mesh);
-  traffic.push(car);
-}
-function updateTraffic(dt) {
-  for (const t of traffic) {
-    if (t.taken) continue;
-    t.along += t.dir * t.speed * dt;
-    if (t.along > 195 || t.along < -195) {
-      // turn onto a perpendicular street at the edge
-      t.horiz = !t.horiz;
-      const oldStreet = t.street;
-      t.street = GRID.streets[Math.floor(Math.random() * GRID.streets.length)];
-      t.along = oldStreet;
-      t.dir = Math.random() < 0.5 ? 1 : -1;
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+  // drag to look (clamped)
+  let dragging = false, lastX = 0;
+  renderer.domElement.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; });
+  window.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    dragYaw = Math.max(-0.6, Math.min(0.6, dragYaw + (e.clientX - lastX) * 0.003));
+    lastX = e.clientX;
+  });
+  window.addEventListener("pointerup", () => { dragging = false; });
+
+  // staged shots
+  const shot = params.get("shot");
+  if (params.get("autostart") === "1" || shot) {
+    startGame(false);
+    if (shot) {
+      setTimeout(() => stageShot(shot, api), 600);
+      setTimeout(() => { window.__ember.ready = true; }, 2500);
     }
-    t.mesh.position.set(t.horiz ? t.along : t.street, 0, t.horiz ? t.street : t.along);
-    t.mesh.rotation.y = t.horiz ? (t.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (t.dir > 0 ? 0 : Math.PI);
-    t.mesh.userData.wheels?.forEach(w => { w.rotation.z += t.speed * dt * 2.2; });
   }
+  window.__ember = api;
+  window.__ember.ready = !shot;
+  animate();
 }
 
-// ----- systems -----
-const missions = makeMissionSystem(scene, state);
-const combat = makeCombat(scene, state, world);
-const peds = makePedestrians(scene, 60);
-window.__ember.peds = peds;
-
-// ----- game flow -----
-function distTo(t) {
-  const px = state.inCar ? carState.x : state.playerX;
-  const pz = state.inCar ? carState.z : state.playerZ;
-  return Math.hypot(t.x - px, t.z - pz);
-}
-function completeMission() {
-  state.cash += 200; state.respect += 50;
-  hud.toast(`Mission complete! +$200 • +50 respect`);
-  if (state.mission === 5) combat.setWanted(0);
-  if (state.mission >= 8) {
-    state.mission = 8; hud.toast("EMBER KING — the city is yours!");
-    missions.setMission(8); return;
-  }
-  state.mission++;
-  missions.setMission(state.mission);
-  if (state.mission === 5) combat.setWanted(4);
-  if (state.mission === 6) combat.setWanted(4);
-}
-const ctx = { distTo, inCar: false, completeMission };
-Object.defineProperty(ctx, "inCar", { get: () => state.inCar });
-
-function nearestCar(maxD) {
-  let best = null, bd = maxD;
-  const px = state.playerX, pz = state.playerZ;
-  const dHero = Math.hypot(heroCar.position.x - px, heroCar.position.z - pz);
-  if (dHero < bd) { best = { kind: "hero", mesh: heroCar, d: dHero }; bd = dHero; }
-  for (const t of traffic) {
-    if (t.taken) continue;
-    const d = Math.hypot(t.mesh.position.x - px, t.mesh.position.z - pz);
-    if (d < bd) { best = { kind: "traffic", car: t, mesh: t.mesh, d }; bd = d; }
-  }
-  return best;
-}
-
-// ----- camera -----
-let camYaw = 0, camPitch = 0;
-const cam = { mode: "follow", dist: 7.2, height: 3.1, fov: 55 };
-const game = {
-  state, missions, combat, cameraMode: "follow",
-  cameraDist: 7.2, cameraHeight: 3.1, cameraFov: 55, coverCam: null,
-  setCar(x, z, heading, inCar) {
-    carState.x = x; carState.z = z; carState.heading = heading; carState.speed = 0;
-    heroCar.position.set(x, 0, z); heroCar.rotation.y = heading;
-    state.heroCarPos = { x, z };
-    state.inCar = inCar;
-    if (inCar) { state.playerX = x; state.playerZ = z; }
-  },
-  setPlayer(x, z, heading) {
-    state.inCar = false;
-    state.playerX = x; state.playerZ = z; state.heading = heading;
-    player.position.set(x, 0, z); player.rotation.y = heading;
-  },
-};
-function updateCamera(dt) {
-  if (game.cameraMode === "cover" && game.coverCam) {
-    camera.position.set(...game.coverCam.pos);
-    camera.lookAt(...game.coverCam.look);
-    camera.fov = 50; camera.updateProjectionMatrix();
-    return;
-  }
-  const focus = state.inCar
-    ? { x: carState.x, z: carState.z, h: carState.heading }
-    : { x: state.playerX, z: state.playerZ, h: state.heading };
-  const dist = game.cameraDist, height = game.cameraHeight;
-  const back = focus.h + Math.PI;
-  const cx = focus.x + Math.sin(back + camYaw) * dist;
-  const cz = focus.z + Math.cos(back + camYaw) * dist;
-  camera.position.set(cx, height, cz);
-  camera.lookAt(focus.x, 1.4, focus.z + (state.inCar ? Math.sin(focus.h) * 4 : 0));
-  camera.fov = game.cameraFov; camera.updateProjectionMatrix();
-}
-
-// ----- start / pause -----
 function startGame(fromSave) {
   if (fromSave) {
     const s = loadGame();
-    if (s) { state.cash = s.cash; state.respect = s.respect; state.mission = s.mission; state.hp = s.hp; state.playerX = s.x; state.playerZ = s.z; }
-    missions.setMission(state.mission);
+    if (s) { state.cash = s.cash; state.respect = s.respect; state.mission = s.mission; state.weaponIdx = s.weaponIdx; state.playerX = s.x; state.playerZ = s.z; }
   }
-  state.started = true; state.paused = false;
-  document.getElementById("start").classList.add("hidden");
-  document.getElementById("hud").classList.remove("hidden");
-  audio.unlock();
+  state.started = true;
+  $("start").classList.add("hidden");
+  $("pause").classList.add("hidden");
+  missions.setMission(state.mission);
+  updateObjective();
 }
-document.getElementById("startbtn").addEventListener("click", () => startGame(false));
-const contBtn = document.getElementById("continuebtn");
-if (hasSave()) contBtn.classList.remove("hidden");
-contBtn.addEventListener("click", () => startGame(true));
-if (AUTOSTART || SHOT) startGame(false);
-if (SHOT) stageShot(SHOT, game);
 
-// ----- main loop -----
-const clock = new THREE.Clock();
-let frames = 0, fpsRealT0 = performance.now();
-function loop() {
-  requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const t = clock.elapsedTime;
-  world.updaters.forEach(u => u(t));
-  // pause toggle must work while paused (checked before the early return)
-  if (input.wasPressed("KeyM") || input.wasPressed("Escape")) {
-    if (state.started) {
-      state.paused = !state.paused;
-      document.getElementById("pause").classList.toggle("hidden", !state.paused);
-    }
+function togglePause() {
+  paused = !paused;
+  $("pause").classList.toggle("hidden", !paused);
+  if (paused) hud.drawBigMap();
+}
+
+function updateObjective() {
+  state.objective = missions.objectiveFor(state.mission);
+}
+
+function nearestCarDist() {
+  let best = 1e9, bestCar = null;
+  const cars = [heroCar, ...traffic];
+  for (const c of cars) {
+    const d = Math.hypot(c.position.x - state.playerX, c.position.z - state.playerZ);
+    if (d < best) { best = d; bestCar = c; }
   }
-  if (!state.started || state.paused) { renderer.render(scene, camera); return; }
+  state.nearestCar = bestCar;
+  return best;
+}
 
-  // keys: weapons, radio, save, garage, mute
-  if (input.wasPressed("Digit1")) state.weapon = 1;
-  if (input.wasPressed("Digit2")) state.weapon = 2;
-  if (input.wasPressed("Digit3")) state.weapon = 3;
-  if (input.wasPressed("Digit4")) state.weapon = 4;
-  if (input.wasPressed("Digit5")) state.weapon = 5;
-  if (input.wasPressed("Digit6")) state.weapon = 6;
-  if (input.wasPressed("Digit7")) state.weapon = 7;
-  if (input.wasPressed("KeyQ")) state.weapon = state.weapon % 7 + 1;
-  if (input.wasPressed("KeyR")) { state.radioOn = audio.toggleRadio(); state.stationName = audio.stationName(); }
-  if (input.wasPressed("KeyC") && state.radioOn) state.stationName = audio.nextStation();
-  if (input.wasPressed("KeyP")) { if (saveGame(state)) hud.toast("Progress saved"); }
-  if (input.wasPressed("KeyG")) openGarage();
-  if (input.wasPressed("KeyN")) hud.toast("Muted (audio off)");
-
-  // enter / exit car, carjack
-  if (input.wasPressed("KeyE")) {
-    if (state.inCar) {
-      state.inCar = false;
-      state.playerX = carState.x + Math.sin(carState.heading + Math.PI / 2) * 2.5;
-      state.playerZ = carState.z + Math.cos(carState.heading + Math.PI / 2) * 2.5;
-      state.heading = carState.heading;
-      player.position.set(state.playerX, 0, state.playerZ);
-      player.visible = true;
-    } else {
-      const near = nearestCar(6);
-      if (near && near.kind === "hero") {
-        state.inCar = true; player.visible = false;
-        carState.x = heroCar.position.x; carState.z = heroCar.position.z;
-        carState.heading = heroCar.rotation.y;
-        if (state.mission === 1) completeMission();
-      }
-    }
-  }
-  if (input.wasPressed("KeyF") && !state.inCar) {
-    const near = nearestCar(5);
-    if (near && near.kind === "traffic") {
-      near.car.taken = true; scene.remove(near.car.mesh);
-      state.inCar = true; player.visible = false;
-      carState.x = near.mesh.position.x; carState.z = near.mesh.position.z;
-      carState.heading = near.mesh.rotation.y;
-      // swap hero car to the jacked car visually: move hero mesh to it
-      heroCar.position.set(carState.x, 0, carState.z); heroCar.rotation.y = carState.heading;
-      combat.addWanted(1);
-      hud.toast("Carjacked! The heat is on");
-    }
-  }
-
-  // movement
+function updatePlayer(dt) {
+  const w = input.down("KeyW") || input.down("ArrowUp");
+  const s = input.down("KeyS") || input.down("ArrowDown");
+  const a = input.down("KeyA") || input.down("ArrowLeft");
+  const d = input.down("KeyD") || input.down("ArrowRight");
   if (state.inCar) {
-    updateCar(carState, input, dt, world.colliders, 205);
-    heroCar.position.set(carState.x, 0, carState.z);
-    heroCar.rotation.y = carState.heading;
-    heroCar.userData.wheels?.forEach(w => { w.rotation.z += carState.speed * dt * 2.2; });
-    state.playerX = carState.x; state.playerZ = carState.z; state.speed = carState.speed;
-    state.heading = carState.heading;
-    audio.setEngine(carState.speed, true);
+    $("prompt").classList.add("hidden");
+    const accel = w ? 22 : s ? -14 : 0;
+    state.speed += accel * dt;
+    state.speed *= Math.pow(0.4, dt);
+    state.speed = Math.max(-10, Math.min(30, state.speed));
+    if (a) state.heading += 1.9 * dt * Math.sign(state.speed || 1);
+    if (d) state.heading -= 1.9 * dt * Math.sign(state.speed || 1);
+    const nx = state.playerX + Math.sin(state.heading) * state.speed * dt;
+    const nz = state.playerZ + Math.cos(state.heading) * state.speed * dt;
+    state.playerX = Math.max(-205, Math.min(300, nx));
+    state.playerZ = Math.max(-205, Math.min(205, nz));
+    heroCar.position.set(state.playerX, 0, state.playerZ);
+    heroCar.rotation.y = state.heading;
+    // spin wheels around their axle (local X for +Z-forward cars)
+    for (const wh of heroCar.userData.wheels || []) wh.rotation.x += state.speed * dt * 2.2;
+    hero.visible = false;
+    if (input.tap("KeyE")) {
+      state.inCar = false; hero.visible = true;
+      hero.position.set(state.playerX + 2.5, 0, state.playerZ);
+      state.speed = 0;
+    }
+    if (Math.abs(state.speed) > 20 && state.mission !== 5) {
+      state.speedTimer = (state.speedTimer || 0) + dt;
+      if (state.speedTimer > 12) { combat.setWanted(state.wanted + 1); state.speedTimer = 0; }
+    }
   } else {
-    const sp = (input.run ? 6.5 : 4) * dt;
+    const sp = 5.2;
     let mx = 0, mz = 0;
-    if (input.forward) { mz += 1; } if (input.back) { mz -= 1; }
-    if (input.left) { mx -= 1; } if (input.right) { mx += 1; }
+    if (w) mz -= 1; if (s) mz += 1; if (a) mx -= 1; if (d) mx += 1;
     if (mx || mz) {
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
+      state.playerX += mx * sp * dt;
+      state.playerZ += mz * sp * dt;
       state.heading = Math.atan2(mx, mz);
-      state.playerX += mx * sp; state.playerZ += mz * sp;
-      state.speed = input.run ? 6.5 : 4;
+      state.speed = sp;
+      const sw = Math.sin(performance.now() / 90) * 0.5;
+      hero.userData.legs[0].rotation.x = sw; hero.userData.legs[1].rotation.x = -sw;
+      hero.userData.arms[0].rotation.x = -sw * 0.7; hero.userData.arms[1].rotation.x = sw * 0.7;
     } else state.speed = 0;
-    // keep player out of building circles
-    for (const c of world.colliders) {
-      const dx = state.playerX - c.x, dz = state.playerZ - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d < c.r + 0.6 && d > 0.01) {
-        state.playerX = c.x + dx / d * (c.r + 0.6);
-        state.playerZ = c.z + dz / d * (c.r + 0.6);
-      }
-    }
-    state.playerX = Math.max(-205, Math.min(215, state.playerX));
+    state.playerX = Math.max(-205, Math.min(300, state.playerX));
     state.playerZ = Math.max(-205, Math.min(205, state.playerZ));
-    player.position.set(state.playerX, 0, state.playerZ);
-    player.rotation.y = state.heading;
-    animateWalk(player, state.speed, dt);
-    audio.setEngine(0, false);
+    hero.position.set(state.playerX, 0, state.playerZ);
+    hero.rotation.y = state.heading;
+    const nd = nearestCarDist();
+    const prompt = $("prompt");
+    if (nd < 5.5) {
+      prompt.textContent = "E — GET IN";
+      prompt.classList.remove("hidden");
+      if (input.tap("KeyE")) {
+        state.inCar = true;
+        state.playerX = state.nearestCar.position.x;
+        state.playerZ = state.nearestCar.position.z;
+        state.heading = state.nearestCar.rotation.y;
+        prompt.classList.add("hidden");
+      }
+    } else prompt.classList.add("hidden");
+    if (input.tap("KeyF") && nd < 8 && state.nearestCar !== heroCar) {
+      const c = state.nearestCar;
+      heroCar.position.copy(c.position);
+      heroCar.rotation.y = c.rotation.y;
+      state.playerX = c.position.x; state.playerZ = c.position.z;
+      state.heading = c.rotation.y;
+      state.inCar = true;
+      state.toast = "Carjacked!";
+    }
   }
+  state.streetName = streetNameAt(state.playerX, state.playerZ);
+  state.heroCarPos = { x: heroCar.position.x, z: heroCar.position.z };
+}
 
-  // shooting (mouse click)
-  if (mouseDown) combat.shoot();
-  updateTraffic(dt);
-  updatePedestrians(peds, dt);
-  combat.update(dt, { x: state.playerX, z: state.playerZ });
-  missions.update(dt, ctx);
-  state.streetName = districtAt(state.playerX, state.playerZ).name === "Sunset Beach" ? "Coastal Rd" : "Cinder Rd";
+function updateTraffic(dt) {
+  for (const c of traffic) {
+    const u = c.userData;
+    const step = u.speed * dt * u.dir;
+    if (u.vertical) {
+      c.position.z += step;
+      if (c.position.z > 205) c.position.z = -205;
+      if (c.position.z < -205) c.position.z = 205;
+      c.rotation.y = u.dir > 0 ? 0 : Math.PI;
+    } else {
+      c.position.x += step;
+      if (c.position.x > 205) c.position.x = -205;
+      if (c.position.x < -205) c.position.x = 205;
+      c.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    }
+    for (const wh of c.userData.wheels || []) wh.rotation.x += u.speed * dt * 2.2 * u.dir;
+  }
+}
 
-  // HUD
-  const mi = missions.missionInfo();
-  const tgt = missions.target();
-  hud.update(dt, state, mi, tgt, state.heading);
-  // enter-car prompt
-  const promptEl = document.getElementById("prompt");
-  if (!state.inCar && state.started) {
-    const near = nearestCar(6);
-    if (near && near.kind === "hero") { promptEl.textContent = "E — GET IN"; promptEl.classList.remove("hidden"); }
-    else if (near && near.kind === "traffic") { promptEl.textContent = "F — CARJACK"; promptEl.classList.remove("hidden"); }
-    else promptEl.classList.add("hidden");
-  } else promptEl.classList.add("hidden");
+function updateCamera(dt) {
+  const px = state.playerX, pz = state.playerZ;
+  if (camMode === "cover") {
+    // low oblique aerial along the coastal road (v11d framing): beach + sea
+    // on the right, city on the left, volcano far ahead — NOT a high diorama.
+    // lookAt nudged east so more sea fills the right third of the frame.
+    camera.position.set(220, 45, 235);
+    camera.lookAt(125, 12, -8);
+    return;
+  }
+  // closer chase/foot cameras so the hero + hero car read BIG in frame
+  const back = state.inCar ? 10.5 : 6.5;
+  const height = state.inCar ? 4.3 : 2.8;
+  const ang = state.heading + Math.PI + dragYaw;
+  const tx = px + Math.sin(ang) * back;
+  const tz = pz + Math.cos(ang) * back;
+  const desired = new THREE.Vector3(tx, height, tz);
+  // snap when far away (e.g. right after a staged-shot teleport) so the
+  // first rendered frame already frames the car/hero; otherwise lerp
+  if (camera.position.distanceTo(desired) > 30) camera.position.copy(desired);
+  else camera.position.lerp(desired, Math.min(1, dt * 4));
+  const look = new THREE.Vector3(px + Math.sin(state.heading) * 6, state.inCar ? 1.2 : 1.6, pz + Math.cos(state.heading) * 6);
+  camera.lookAt(look);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.1, clock.getDelta() || 0.016);
+  const t = clock.elapsedTime;
+  if (!paused && state.started) {
+    updatePlayer(dt);
+    updateTraffic(dt);
+    crowd.update(dt, t);
+    missions.update(dt, t, { x: state.playerX, z: state.playerZ }, state.inCar);
+    combat.update(dt, t, { x: state.playerX, z: state.playerZ }, state.heading, state.speed);
+    world.update(t, dt);
+    updateObjective();
+    hud.update();
+  }
   updateCamera(dt);
-
-  // fps + ready flag for the harness (real time, not game time)
-  frames++;
-  const nowMs = performance.now();
-  if (nowMs - fpsRealT0 >= 1000) { window.__ember.fps = Math.round(frames * 1000 / (nowMs - fpsRealT0)); frames = 0; fpsRealT0 = nowMs; }
-  window.__ember.ready = true;
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 1) { fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
   renderer.render(scene, camera);
-}
-let mouseDown = false;
-renderer.domElement.addEventListener("mousedown", () => { mouseDown = true; });
-window.addEventListener("mouseup", () => { mouseDown = false; });
-window.addEventListener("error", e => window.__ember.errors.push(String(e.message || e.error)));
-window.addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-// ----- garage -----
-function openGarage() {
-  if (!state.inCar) { hud.toast("Get in a car first"); return; }
-  const choice = state.cash >= 500 ? "engine" : null;
-  if (choice) { state.cash -= 500; hud.toast("Engine upgraded! +speed ($500)"); }
-  else hud.toast("Garage: Engine upgrade $500 — not enough cash");
+  input.endFrame();
 }
 
-loop();
+const api = {
+  get state() { return state; },
+  get ready() { return this._ready; },
+  set ready(v) { this._ready = v; },
+  _ready: false,
+  get fps() { return fps; },
+  get errors() { return errors; },
+  get scene() { return scene; },
+  nearestCarDist,
+  warp(x, z) { state.playerX = x; state.playerZ = z; hero.position.set(x, 0, z); },
+  setPlayer(x, z, heading, inCar) {
+    state.playerX = x; state.playerZ = z; state.heading = heading; state.inCar = inCar;
+    hero.position.set(x, 0, z); hero.rotation.y = heading;
+    hero.visible = !inCar;
+    if (inCar) { heroCar.position.set(x, 0, z); heroCar.rotation.y = heading; $("prompt").classList.add("hidden"); }
+    camMode = inCar ? "chase" : "foot";
+  },
+  setMission(mi) { missions.setMission(mi); updateObjective(); },
+  setWanted(n) { combat.setWanted(n); },
+  setCamera(mode) { camMode = mode; if (mode === "cover") { camera.position.set(220, 45, 235); camera.lookAt(125, 12, -8); } },
+  setSpeed(mph) { state.speed = mph / 2.2; },
+  placeHeliForShot() {
+    // heli ahead of the car (in the chase camera's view), not behind it.
+    // The orbit in combat.update() positions it from this angle, so set
+    // the angle even if the heli mesh does not exist yet.
+    // Offset +0.55 rad east of straight-ahead: dead-ahead puts the heli
+    // right over the EMBER BAY billboard (same x as the gantry); ~10m to
+    // the side keeps it fully in frame AND the billboard readable.
+    combat.heliAngle = -Math.PI / 2 + 0.55;
+    if (combat.heli) {
+      combat.heli.position.set(
+        state.playerX + Math.cos(combat.heliAngle) * 20,
+        13.5,
+        state.playerZ + Math.sin(combat.heliAngle) * 20 - 8);
+    }
+  },
+  info() {
+    let meshes = 0; scene.traverse((o) => { if (o.isMesh) meshes++; });
+    return { meshes, buildings: world.buildings.length, peds: crowd.peds.length, traffic: traffic.length, onRoad: crowd.onRoadCount() };
+  },
+};
+
+init();
