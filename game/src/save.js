@@ -1,43 +1,57 @@
-// Ember Bay — save and load through localStorage.
-(function () {
-  var EB = window.EB || (window.EB = {});
-  var KEY = 'ember-bay-save-v1';
+// EMBER BAY — Heat Line: save.js
+// One job: persist the campaign in localStorage — cash, respect, rank,
+// missions, upgrades, paint, and where Kade stands — and bring it back.
+EB.save = (function () {
+  function payload() {
+    return {
+      version: 1,
+      cash: EB.state.cash, respect: EB.state.respect, rankIndex: EB.state.rankIndex,
+      health: EB.state.health, weapon: EB.state.weapon, radio: EB.state.radio,
+      paintIndex: EB.state.paintIndex, engineLevel: EB.state.engineLevel,
+      armorLevel: EB.state.armorLevel, missionIndex: EB.state.missionIndex,
+      missionDone: EB.state.missionDone, storyComplete: EB.state.storyComplete,
+      playerX: EB.state.playerX, playerZ: EB.state.playerZ,
+      playerHeading: EB.state.playerHeading,
+      timePlayed: EB.state.timePlayed, kills: EB.state.kills,
+      carsStolen: EB.state.carsStolen, savedAt: Date.now(),
+    };
+  }
 
-  EB.save = {
-    write: function () {
+  return {
+    save: function (quiet) {
       try {
-        var s = EB.state;
-        localStorage.setItem(KEY, JSON.stringify({
-          money: s.money, respect: s.respect, hp: s.hp,
-          missionIndex: s.missionIndex, missionDone: s.missionDone,
-          weaponIndex: s.weaponIndex, ammo: s.ammo,
-          upgrades: s.upgrades, kills: s.kills, carsStolen: s.carsStolen
-        }));
+        localStorage.setItem(EB.SAVE_KEY, JSON.stringify(payload()));
+        if (!quiet) EB.say("Game saved");
         return true;
       } catch (e) { return false; }
     },
-    read: function () {
+    load: function () {
       try {
-        var raw = localStorage.getItem(KEY);
-        if (!raw) return null;
-        return JSON.parse(raw);
-      } catch (e) { return null; }
+        var raw = localStorage.getItem(EB.SAVE_KEY);
+        if (!raw) return false;
+        var d = JSON.parse(raw);
+        if (!d || d.version !== 1) return false;
+        EB.state.cash = d.cash; EB.state.respect = d.respect;
+        EB.state.rankIndex = d.rankIndex; EB.state.health = d.health;
+        EB.state.weapon = d.weapon; EB.state.radio = d.radio || 0;
+        EB.state.paintIndex = d.paintIndex || 0;
+        EB.state.engineLevel = d.engineLevel || 1;
+        EB.state.armorLevel = d.armorLevel || 1;
+        EB.state.missionIndex = d.missionIndex || 0;
+        EB.state.missionDone = d.missionDone || EB.state.missionDone;
+        EB.state.storyComplete = !!d.storyComplete;
+        EB.state.playerX = d.playerX; EB.state.playerZ = d.playerZ;
+        EB.state.playerHeading = d.playerHeading || 0;
+        EB.state.timePlayed = d.timePlayed || 0;
+        EB.state.kills = d.kills || 0; EB.state.carsStolen = d.carsStolen || 0;
+        return true;
+      } catch (e) { return false; }
     },
-    apply: function (data) {
-      if (!data) return false;
-      var s = EB.state;
-      if (typeof data.money === 'number') s.money = data.money;
-      if (typeof data.respect === 'number') s.respect = data.respect;
-      if (typeof data.hp === 'number') s.hp = data.hp;
-      if (typeof data.missionIndex === 'number') s.missionIndex = data.missionIndex;
-      if (Array.isArray(data.missionDone)) s.missionDone = data.missionDone;
-      if (typeof data.weaponIndex === 'number') s.weaponIndex = data.weaponIndex;
-      if (Array.isArray(data.ammo)) s.ammo = data.ammo;
-      if (data.upgrades) s.upgrades = data.upgrades;
-      if (typeof data.kills === 'number') s.kills = data.kills;
-      if (typeof data.carsStolen === 'number') s.carsStolen = data.carsStolen;
-      return true;
+    hasSave: function () {
+      try { return !!localStorage.getItem(EB.SAVE_KEY); } catch (e) { return false; }
     },
-    clear: function () { try { localStorage.removeItem(KEY); } catch (e) {} }
+    clear: function () {
+      try { localStorage.removeItem(EB.SAVE_KEY); } catch (e) { /* ignore */ }
+    },
   };
 })();
