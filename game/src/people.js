@@ -65,13 +65,27 @@ export function sidewalkLane() {
   return { x: along, z: road + side * off, dir: along > 0 ? 1 : -1, axis: "x" };
 }
 
+// Coastal corridor lane: a sidewalk along Coastal Rd (x=168) or the two
+// roads beside it, z 40..200 — the strip the drive/chase camera sees.
+// Packing walkers here (not just anywhere in the city) is what makes the
+// drive frame read alive instead of empty.
+export function coastalLane() {
+  const road = [168, 168, 126, 84][Math.floor(Math.random() * 4)];
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const off = CFG.roadWidth / 2 + 1.2 + Math.random() * 2.2; // on the sidewalk
+  const along = -20 + Math.random() * 220; // z -20..200, ahead of the hero too
+  return { x: road + side * off, z: along, dir: Math.random() < 0.5 ? 1 : -1, axis: "z" };
+}
+
 export class PedCrowd {
   constructor(scene) {
     this.scene = scene;
     this.peds = [];
     for (let i = 0; i < CFG.pedCount; i++) {
       const p = buildPedestrian(1000 + i * 77);
-      const lane = sidewalkLane();
+      // the first 30 walk the coastal corridor (the drive/chase camera's
+      // strip) so the frame has 5-8 walkers in view; the rest spread city-wide
+      const lane = i < 30 ? coastalLane() : sidewalkLane();
       p.position.set(lane.x, 0, lane.z);
       p.userData.lane = lane;
       p.userData.speed = 1.1 + Math.random() * 0.9;
