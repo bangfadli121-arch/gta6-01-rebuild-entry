@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.js";
+import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.min.js";
 // missions.js — 8 story missions, objective markers, checkpoints, crates.
 import { CFG } from "./config.js";
 
