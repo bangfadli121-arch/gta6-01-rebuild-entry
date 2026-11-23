@@ -1,16 +1,19 @@
-// Ember Bay — synthesized sound: four radio stations, engine hum and
-// effects. Everything is WebAudio oscillators; no audio files are loaded.
-(function () {
-  var EB = window.EB || (window.EB = {});
-  var ctx = null, master = null, radioGain = null, engineOsc = null, engineGain = null;
-  var radioTimer = null, step = 0;
+// EMBER BAY — Heat Line: audio.js
+// One job: every sound, synthesized live with WebAudio. No audio files.
+// Three radio stations are little step sequencers; engine, siren, gunfire
+// and pickups are oscillators and noise shaped by envelopes.
+EB.audio = (function () {
+  var ctx = null, master = null, musicGain = null, engineOsc = null,
+    engineGain = null, sirenOsc = null, sirenGain = null, sirenLfo = null,
+    musicTimer = null, step = 0, started = false;
 
-  var SCALES = {
-    synthwave: [55, 65.41, 82.41, 98, 110, 130.81, 164.81],
-    chill: [130.81, 164.81, 196, 220, 261.63, 329.63],
-    rock: [73.42, 82.41, 98, 110, 123.47, 146.83],
-    talk: [110, 110, 130.81, 98]
-  };
+  // Chord roots per station (Hz), one bar = 8 steps.
+  var STATION_CHORDS = [
+    null,
+    [110, 130.8, 164.8, 196],   // Ember FM: warm A-minor-ish drive
+    [98, 123.5, 146.8, 185],    // Neon Wave: G-minor synth pulse
+    [87.3, 103.8, 130.8, 155.6],// Cinder Talk: low F groove
+  ];
 
   function ensure() {
     if (ctx) return true;
@@ -19,87 +22,114 @@
       if (!AC) return false;
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
-      radioGain = ctx.createGain(); radioGain.gain.value = 0.16; radioGain.connect(master);
-      engineOsc = ctx.createOscillator(); engineOsc.type = 'sawtooth'; engineOsc.frequency.value = 55;
-      engineGain = ctx.createGain(); engineGain.gain.value = 0.0; engineGain.connect(master);
-      engineOsc.connect(engineGain); engineOsc.start();
+      musicGain = ctx.createGain(); musicGain.gain.value = 0.16; musicGain.connect(master);
+      engineGain = ctx.createGain(); engineGain.gain.value = 0; engineGain.connect(master);
+      engineOsc = ctx.createOscillator(); engineOsc.type = "sawtooth";
+      engineOsc.frequency.value = 60; engineOsc.connect(engineGain); engineOsc.start();
+      sirenGain = ctx.createGain(); sirenGain.gain.value = 0; sirenGain.connect(master);
+      sirenOsc = ctx.createOscillator(); sirenOsc.type = "sine"; sirenOsc.frequency.value = 750;
+      sirenOsc.connect(sirenGain); sirenOsc.start();
+      sirenLfo = ctx.createOscillator(); sirenLfo.type = "sine"; sirenLfo.frequency.value = 0.55;
+      var lfoGain = ctx.createGain(); lfoGain.gain.value = 320;
+      sirenLfo.connect(lfoGain); lfoGain.connect(sirenOsc.frequency); sirenLfo.start();
       return true;
-    } catch (e) { return false; }
+    } catch (e) { ctx = null; return false; }
   }
 
-  function note(freq, dur, type, vol, when) {
+  function blip(freq, dur, type, vol, slideTo) {
+    if (!ensure() || EB.state.muted) return;
+    if (ctx.state === "suspended") ctx.resume();
     var o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = type || 'square'; o.frequency.value = freq;
-    g.gain.setValueAtTime(vol || 0.2, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-    o.connect(g); g.connect(radioGain);
-    o.start(when); o.stop(when + dur + 0.05);
+    o.type = type || "sine"; o.frequency.value = freq;
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, ctx.currentTime + dur);
+    g.gain.setValueAtTime(vol || 0.2, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + dur);
   }
 
-  function radioBeat() {
-    if (!ctx || !EB.state.radioOn) return;
-    var st = EB.CONFIG.radio[EB.state.radioIndex];
-    var scale = SCALES[st.style] || SCALES.synthwave;
-    var now = ctx.currentTime + 0.02;
-    var root = scale[step % scale.length];
-    if (st.style === 'synthwave') {
-      note(root * 2, 0.22, 'square', 0.16, now);
-      note(root, 0.45, 'sawtooth', 0.10, now);
-      if (step % 4 === 0) note(root / 2, 0.5, 'triangle', 0.22, now);
-    } else if (st.style === 'chill') {
-      note(root, 0.9, 'sine', 0.18, now);
-      if (step % 2 === 0) note(root * 1.5, 0.7, 'sine', 0.10, now + 0.1);
-    } else if (st.style === 'rock') {
-      note(root, 0.18, 'sawtooth', 0.20, now);
-      if (step % 2 === 1) note(root * 2, 0.12, 'square', 0.12, now);
-      if (step % 8 === 0) note(root / 2, 0.4, 'triangle', 0.25, now);
-    } else {
-      if (step % 3 === 0) note(180 + (step % 5) * 12, 0.08, 'square', 0.08, now);
-      note(root / 2, 0.3, 'triangle', 0.10, now);
+  function noiseBurst(dur, vol, lowpass) {
+    if (!ensure() || EB.state.muted) return;
+    var len = Math.floor(ctx.sampleRate * dur);
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    var f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lowpass || 1200;
+    var g = ctx.createGain(); g.gain.value = vol || 0.3;
+    src.connect(f); f.connect(g); g.connect(master); src.start();
+  }
+
+  function playStep() {
+    if (!ctx || EB.state.radio === 0 || EB.state.muted) return;
+    var station = EB.RADIO_STATIONS[EB.state.radio];
+    var chords = STATION_CHORDS[EB.state.radio];
+    var bar = Math.floor(step / 8) % chords.length;
+    var root = chords[bar];
+    var beat = step % 8;
+    var beatDur = 60 / station.tempo / 2;
+    // Bass on beats 0, 3, 4, 6.
+    if (beat === 0 || beat === 3 || beat === 4 || beat === 6) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = station.wave; o.frequency.value = root / 2;
+      g.gain.setValueAtTime(0.5, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + beatDur * 1.8);
+      o.connect(g); g.connect(musicGain); o.start(); o.stop(ctx.currentTime + beatDur * 2);
+    }
+    // Sparkle lead on off-beats.
+    if (beat % 2 === 1) {
+      var notes = [1, 1.5, 2, 2.5];
+      var o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o2.type = "sine"; o2.frequency.value = root * notes[(step >> 1) % 4];
+      g2.gain.setValueAtTime(0.22, ctx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + beatDur);
+      o2.connect(g2); g2.connect(musicGain); o2.start(); o2.stop(ctx.currentTime + beatDur);
     }
     step++;
   }
 
-  EB.audio = {
-    unlock: function () {
-      if (!ensure()) return;
-      if (ctx.state === 'suspended') ctx.resume();
-      if (!radioTimer) radioTimer = setInterval(radioBeat, 240);
+  function startMusic() {
+    if (musicTimer || !ensure()) return;
+    var station = EB.RADIO_STATIONS[EB.state.radio];
+    if (!station || station.tempo === 0) return;
+    musicTimer = setInterval(playStep, (60 / station.tempo / 2) * 1000);
+  }
+  function stopMusic() {
+    if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
+  }
+
+  return {
+    init: function () { ensure(); started = true; },
+    unlock: function () { if (ensure() && ctx.state === "suspended") ctx.resume(); },
+    setStation: function (i) {
+      EB.state.radio = ((i % EB.RADIO_STATIONS.length) + EB.RADIO_STATIONS.length) % EB.RADIO_STATIONS.length;
+      stopMusic();
+      if (EB.state.radio > 0) startMusic();
+      if (EB.hud) EB.hud.refreshRadio();
     },
-    setEngine: function (speed01, on) {
-      if (!ctx || !engineOsc) return;
-      engineOsc.frequency.value = 50 + speed01 * 160;
-      engineGain.gain.value = on ? 0.03 + speed01 * 0.05 : 0.0;
-    },
-    blip: function (freq, dur) {
+    cycleStation: function () { this.setStation(EB.state.radio + 1); },
+    engine: function (on, speedFrac) {
       if (!ensure()) return;
-      note(freq || 880, dur || 0.12, 'sine', 0.25, ctx.currentTime);
+      var target = on ? 0.05 + 0.06 * EB.util.clamp(speedFrac || 0, 0, 1) : 0;
+      engineGain.gain.setTargetAtTime(EB.state.muted ? 0 : target, ctx.currentTime, 0.1);
+      engineOsc.frequency.setTargetAtTime(55 + 140 * EB.util.clamp(speedFrac || 0, 0, 1), ctx.currentTime, 0.1);
     },
-    shot: function () {
+    siren: function (on) {
       if (!ensure()) return;
-      var o = ctx.createOscillator(), g = ctx.createGain(), n = ctx.currentTime;
-      o.type = 'square'; o.frequency.setValueAtTime(220, n);
-      o.frequency.exponentialRampToValueAtTime(40, n + 0.12);
-      g.gain.setValueAtTime(0.35, n); g.gain.exponentialRampToValueAtTime(0.001, n + 0.14);
-      o.connect(g); g.connect(master); o.start(n); o.stop(n + 0.16);
+      sirenGain.gain.setTargetAtTime(on && !EB.state.muted ? 0.045 : 0, ctx.currentTime, 0.3);
     },
-    crash: function () {
-      if (!ensure()) return;
-      var o = ctx.createOscillator(), g = ctx.createGain(), n = ctx.currentTime;
-      o.type = 'sawtooth'; o.frequency.setValueAtTime(90, n);
-      o.frequency.exponentialRampToValueAtTime(30, n + 0.25);
-      g.gain.setValueAtTime(0.4, n); g.gain.exponentialRampToValueAtTime(0.001, n + 0.3);
-      o.connect(g); g.connect(master); o.start(n); o.stop(n + 0.32);
+    shot: function () { noiseBurst(0.14, 0.5, 2400); blip(160, 0.09, "square", 0.16, 60); },
+    enemyShot: function () { noiseBurst(0.1, 0.22, 1600); },
+    pickup: function () { blip(660, 0.1, "sine", 0.25); setTimeout(function () { blip(990, 0.16, "sine", 0.25); }, 90); },
+    cash: function () { blip(880, 0.1, "triangle", 0.25); setTimeout(function () { blip(1174, 0.2, "triangle", 0.25); }, 110); },
+    mission: function () { [523, 659, 784, 1046].forEach(function (f, i) { setTimeout(function () { blip(f, 0.22, "triangle", 0.28); }, i * 120); }); },
+    fail: function () { blip(220, 0.4, "sawtooth", 0.22, 110); },
+    beep: function () { blip(1200, 0.07, "sine", 0.18); },
+    crash: function () { noiseBurst(0.25, 0.4, 700); },
+    toggleMute: function () {
+      EB.state.muted = !EB.state.muted;
+      if (master && ctx) master.gain.value = EB.state.muted ? 0 : 0.5;
+      return EB.state.muted;
     },
-    siren: function () {
-      if (!ensure()) return;
-      var o = ctx.createOscillator(), g = ctx.createGain(), n = ctx.currentTime;
-      o.type = 'sine';
-      o.frequency.setValueAtTime(700, n);
-      o.frequency.linearRampToValueAtTime(1100, n + 0.4);
-      o.frequency.linearRampToValueAtTime(700, n + 0.8);
-      g.gain.setValueAtTime(0.06, n); g.gain.exponentialRampToValueAtTime(0.001, n + 0.85);
-      o.connect(g); g.connect(master); o.start(n); o.stop(n + 0.9);
-    }
+    isStarted: function () { return started; },
   };
 })();
