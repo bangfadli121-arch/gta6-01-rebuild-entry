@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.js";
-import { mergeGeometries } from "../vendor/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.min.js";
+import { mergeGeometries } from "../vendor/utils/BufferGeometryUtils.min.js";
 // world.js — EMBER BAY island: sky, ground, roads, beach, sea, volcano,
 // ~120 buildings with canvas window-grid facades, palms, lamps, billboard.
 import { CFG } from "./config.js";
