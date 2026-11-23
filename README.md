@@ -1,63 +1,81 @@
-# EMBER BAY — Open-World Crime
+# EMBER BAY — Heat Line
 
-[![make.fun — gta6-01](https://img.shields.io/badge/make.fun-gta6--01-orange)](https://make.fun/bounty/gta6-01)
-[![make.fun — leaderboard live](https://img.shields.io/badge/leaderboard-live-brightgreen)](https://make.fun/bounty/gta6-01)
-[![make.fun — prize $1,666](https://img.shields.io/badge/prize-%241%2C666-gold)](https://make.fun/bounty/gta6-01)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Three.js r160](https://img.shields.io/badge/Three.js-r160-black)
+![make.fun gta6-01](https://img.shields.io/badge/make.fun-gta6--01-orange)
 
-**Competition:** [Make GTA 6 — gta6-01 on make.fun](https://make.fun/bounty/gta6-01)
+An original open-world crime game in the browser, built for the make.fun
+**gta6-01 "Make GTA 6"** bounty. Drive, steal, run, and rise through the
+ranks of Ember Bay — a fictional volcanic island city caught in golden hour.
 
-A complete open-world crime game in the browser, built with Three.js.
-Drive a sun-soaked island city at golden hour, run 8 story missions,
-outrun the police, jack cars, upgrade your ride at the garage, and take
-the crown from the Ember King.
+You are **Kade Venn**, fresh out of a bad deal in Portside. Your crew —
+**Mara Solis**, **Dario Flint**, and **June Park** — pulls you back in for
+one last run at the Ember Crown. Eight story missions take you from a
+stolen first car to a helicopter chase and the heist of the Ember GT.
 
-## Play
+## Play it
+
+Serve the `game/` folder with any static server and open `index.html`
+in desktop Chrome — no build step, no network requests, everything is
+local (Three.js r160 is vendored under `game/vendor/`).
 
 ```sh
-node serve.ts
-# open http://localhost:8080
+npx serve game
+# or: python3 -m http.server --directory game 8080
 ```
-
-No build step, no network requests at runtime: every file the game loads
-lives under `game/`, including the vendored Three.js r128.
 
 ## Controls
 
-- **WASD** drive / walk, **Mouse** aim, **Click** shoot
-- **E** enter / exit car, **F** jack a car, **Space** brake
-- **1–7** weapons, **R** radio, **V** radio off, **G** garage, **M** mission, **P** pause
+| Key | Action |
+| --- | --- |
+| W A S D | Drive / walk (Shift to sprint on foot) |
+| Mouse drag | Orbit the camera |
+| E | Enter / exit a car (carjack a traffic car to raise wanted) |
+| F | Carjack the nearest car |
+| Space / Click | Shoot (on foot, or from the car window) |
+| Q or 1–4 | Weapon wheel / pick Fists, P9, SMG, Rifle |
+| R | Cycle radio station (3 synth stations, WebAudio) |
+| G | Garage upgrades (engine, armor, paint) |
+| P | Save game (auto-saves after every mission) |
+| M | Mute |
+| Esc | Pause |
 
-## What's inside
+## The city
 
-- A dense, colourful city: hundreds of buildings with lit windows, Neon
-  Row billboards, a sandy beach with palms and umbrellas, sailboats on
-  a teal sea, and a smoking volcano with glowing lava.
-- 8 story missions: street racing, deliveries, getaways, a harbor heist,
-  roadblock runs, a timed volcano climb and a final showdown.
-- Wanted stars, police dispatch with roadblocks and a helicopter,
-  weapon wheel (slots 1–7), respect ranks from STREET RAT to EMBER KING.
-- Living traffic and pedestrians, carjacking, garage upgrades
-  (engine / armor / nitro), 4 synthesized radio stations including
-  EMBER FM 88.1, and localStorage saves.
-- Full HUD: cash, rank, health, weapon slots, wanted stars, mission
-  panel and a round minimap of the city.
+Six districts, each with its own look: **Portside** (docks and cranes),
+**Old Market** (tight streets and stalls), **Neon Row** (signs and
+nightlife), **Palm Heights** (hills and villas), **Cinder Docks**
+(warehouses and the Rust Crew), and **Sunset Beach** (the finale).
 
-## Screenshots
+## Systems
 
-`1-cover.jpg` is the cover: an aerial three-quarter view from above the
-beach — sea and sailboats in front, the hero car on the coastal road,
-the dense city, and the volcano behind it. The other shots show driving,
-a police chase and a mission in progress.
+- **8 story missions** — joyride, pickup, street race, dock crates,
+  getaway, helicopter escape, three drops, and the Ember Crown finale.
+- **Wanted 1–5** — police chase you, set **roadblocks at 3 stars**,
+  and send the **Air One helicopter with a spotlight at 4 stars**.
+- **Traffic and pedestrians** — 11 traffic cars and 16 pedestrians
+  living their own routes; pedestrians scatter when shots are fired.
+- **Combat** — four weapons on a wheel, gang shootouts, tracers and
+  muzzle flash.
+- **Respect ranks** — Street Rat, Hustler, Wheelman, Enforcer,
+  Kingpin, Ember King. Missions and clean getaways raise it.
+- **Garage** — spend cash on engine, armor, and paint for your ride.
+- **Saves** — localStorage saves, Continue on the start screen,
+  auto-save after each mission.
+- **Radio** — three WebAudio synth stations: Ember FM, Neon Wave,
+  and Cinder Talk.
 
-## Hand in
+## Tech
 
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
-
-`main.ts` copies `game/` and `screenshots/` to the output directory and
-writes `dossier.json` with `buildDossier` from `vendor/makefun-game.ts`.
+- Three.js r160 (vendored, `game/vendor/three.min.js`), plain
+  JavaScript, no build step, no network.
+- Source split by job: `config`, `audio`, `input`, `world`,
+  `vehicles`, `people`, `missions`, `combat`, `save`, `hud`,
+  `shots`, `main`.
+- Screenshots in `screenshots/` are real renders of this code:
+  cover (chase with police), drive, chase, and mission.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). All city, character, vehicle, story,
+and music names are original.
