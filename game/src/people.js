@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.js";
+import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.min.js";
 // people.js — pedestrians (varied, sidewalk-clamped, walking) and the
 // hero Kade Venn (jacket, hair, pants, shoes, walk animation).
 import { CFG } from "./config.js";
