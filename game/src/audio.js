@@ -1,62 +1,48 @@
-// EMBER BAY audio — round 5, written from zero.
-// WebAudio synth radio (3 stations), engine hum, siren. No audio files.
-import { STATIONS } from "./config.js";
+// audio.js — 3 synth radio stations (WebAudio, no assets).
+const STATIONS = [
+  { name: "EMBER FM", base: 110, wave: "sawtooth", tempo: 112 },
+  { name: "NEON WAVE", base: 164, wave: "square", tempo: 96 },
+  { name: "PALM CHILL", base: 220, wave: "sine", tempo: 72 },
+];
 
-export function makeAudio() {
-  let ctx = null, master = null, radioGain = null, engineOsc = null, engineGain = null;
-  let station = 0, radioOn = false, seqTimer = null, step = 0;
-  const SCALES = [
-    [0, 3, 5, 7, 10, 12, 15],   // minor pentatonic (EMBER FM synthwave)
-    [0, 2, 4, 7, 9, 12, 14],    // major groove (HEAT 98)
-    [0, 3, 5, 6, 7, 10, 12],    // bluesy (BAY TALK)
-  ];
-  function ensure() {
-    if (ctx) return;
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
-    radioGain = ctx.createGain(); radioGain.gain.value = 0.0; radioGain.connect(master);
-    engineOsc = ctx.createOscillator(); engineOsc.type = "sawtooth"; engineOsc.frequency.value = 60;
-    engineGain = ctx.createGain(); engineGain.gain.value = 0.0;
-    engineOsc.connect(engineGain); engineGain.connect(master); engineOsc.start();
+export class Radio {
+  constructor() {
+    this.ctx = null; this.on = false; this.station = 0; this.nodes = [];
+    this.nextNote = 0; this.timer = null; this.current = null;
   }
-  function note(freq, t, dur, type, vol) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = type; o.frequency.value = freq;
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(radioGain); o.start(t); o.stop(t + dur + 0.02);
+  ensure() {
+    if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { this.ctx = null; } }
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+    return !!this.ctx;
   }
-  function tick() {
-    if (!ctx || !radioOn) return;
-    const st = STATIONS[station];
-    const scale = SCALES[station];
-    const beat = 60 / st.bpm / 2;
-    const t = ctx.currentTime + 0.05;
-    const root = 110 * Math.pow(2, (st.root - 69) / 12) * 2;
-    if (step % 4 === 0) note(root / 2, t, beat * 3.5, "triangle", 0.5);       // bass
-    if (step % 2 === 0) note(root * 2, t, beat * 0.9, "square", 0.06);        // hat-ish
-    const deg = scale[(step * 3 + Math.floor(step / 8)) % scale.length];
-    note(root * Math.pow(2, deg / 12), t, beat * 1.8, station === 1 ? "sawtooth" : "sine", 0.16); // lead
-    step++;
-    seqTimer = setTimeout(tick, beat * 1000);
+  stationName() { return STATIONS[this.station].name; }
+  toggle() { this.on = !this.on; if (this.on) this.start(); else this.stop(); return this.on; }
+  next() { this.station = (this.station + 1) % STATIONS.length; if (this.on) { this.stop(); this.start(); } }
+  start() {
+    if (!this.ensure()) return;
+    const st = STATIONS[this.station];
+    const step = 60 / st.tempo / 2;
+    const scale = [0, 3, 5, 7, 10, 12, 15];
+    let i = 0;
+    const tick = () => {
+      if (!this.on || !this.ctx) return;
+      const o = this.ctx.createOscillator(); o.type = st.wave;
+      const f = st.base * Math.pow(2, scale[i % scale.length] / 12);
+      o.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.06, this.ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + step * 0.95);
+      o.connect(g).connect(this.ctx.destination);
+      o.start(); o.stop(this.ctx.currentTime + step);
+      // keep the live oscillator so stop() silences it at once instead of
+      // letting the current note ring out to the end of its step
+      if (this.current) { try { this.current.stop(); } catch { /* already stopped */ } }
+      this.current = o;
+      i++;
+      this.timer = setTimeout(tick, step * 1000);
+    };
+    tick();
   }
-  return {
-    unlock() { ensure(); if (ctx.state === "suspended") ctx.resume(); },
-    toggleRadio() {
-      ensure();
-      radioOn = !radioOn;
-      if (radioGain) radioGain.gain.value = radioOn ? 0.35 : 0.0;
-      if (radioOn) { step = 0; clearTimeout(seqTimer); tick(); }
-      else clearTimeout(seqTimer);
-      return radioOn;
-    },
-    nextStation() { station = (station + 1) % STATIONS.length; return STATIONS[station].name; },
-    stationName() { return STATIONS[station].name; },
-    radioOn() { return radioOn; },
-    setEngine(speed, inCar) {
-      if (!ctx) return;
-      engineGain.gain.value = inCar ? 0.05 + Math.abs(speed) * 0.004 : 0.0;
-      engineOsc.frequency.value = 55 + Math.abs(speed) * 4;
-    },
-    siren(on) { /* siren is visual-only in this build; engine hum covers audio */ },
-  };
+  stop() { if (this.timer) clearTimeout(this.timer); this.timer = null; if (this.current) { try { this.current.stop(); } catch { /* already stopped */ } this.current = null; } }
 }
