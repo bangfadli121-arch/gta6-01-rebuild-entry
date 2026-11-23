@@ -3,77 +3,102 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EMBER BAY — Open-World Crime</title>
+<title>EMBER BAY — Heat Line</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="game-canvas"></div>
+<div id="game-root">
+  <canvas id="scene"></canvas>
 
-<div id="hud">
-  <div id="hud-top-left">
-    <div id="hud-money">$1,500</div>
-    <div id="hud-rank">STREET RAT</div>
-    <div id="hud-respect">RESPECT 0</div>
-    <div id="hud-hpbar-wrap"><div id="hud-hpbar"></div></div>
-    <div id="hud-hp">HP 100</div>
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="wanted" title="Wanted level"></div>
+    <div id="cash-line"><span id="cash">$0</span><span id="respect-wrap"><span id="rank">STREET RAT</span><span id="respect-bar"><span id="respect-fill"></span></span></span></div>
+    <div id="health-wrap"><span id="health-label">HP</span><span id="health-bar"><span id="health-fill"></span></span><span id="weapon-slot">FISTS</span></div>
+    <div id="location-label">Portside · Harbor Rd</div>
+    <div id="fps-pill">Running at 60 fps</div>
+    <div id="weapon-bar"></div>
+    <div id="speed-box"><span id="speed">0</span><span id="speed-unit">mph</span></div>
+    <div id="objective"><span id="objective-job">JOB 1/8</span><span id="objective-title">MISSION</span><span id="objective-text">Welcome to Ember Bay.</span><div id="objective-stages"></div><div id="objective-progress" class="hidden"><span id="objective-progress-bar"><span id="objective-progress-fill"></span></span><span id="objective-progress-label"></span></div><span id="objective-next"></span></div>
+    <canvas id="minimap" width="170" height="170"></canvas>
+    <div id="radio-box">RADIO <span id="radio-name">OFF</span> <span id="radio-hint">[R]</span></div>
+    <div id="carjack-prompt" class="hidden"></div>
+    <div id="toast"></div>
+    <div id="center-msg"></div>
+    <div id="hint">WASD drive &middot; E enter &middot; F carjack &middot; Q weapons &middot; G garage &middot; M map &middot; P save</div>
   </div>
-  <div id="hud-top-right">
-    <div id="hud-stars">&#9734;&#9734;&#9734;&#9734;&#9734;</div>
-    <div id="hud-mission">MISSION 2/8 — Pizza Run</div>
-    <div id="hud-objective"></div>
+
+  <!-- Pause map: city map + progression stats -->
+  <div id="map-screen" class="hidden">
+    <div class="map-inner">
+      <div class="map-title">EMBER BAY — CITY MAP</div>
+      <canvas id="map-canvas" width="520" height="520"></canvas>
+      <div id="map-stats"></div>
+      <div id="map-legend"><span class="lg"><i class="lg-dot lg-you"></i>YOU</span><span class="lg"><i class="lg-dot lg-mission"></i>MISSION</span><span class="lg"><i class="lg-dot lg-police"></i>POLICE</span><span class="lg"><i class="lg-dot lg-traffic"></i>TRAFFIC</span></div>
+      <div class="panel-hint">M / Esc to close</div>
+    </div>
   </div>
-  <div id="hud-weapons"></div>
-  <div id="hud-bottom-right">
-    <div id="hud-speed">0 mph</div>
-    <div id="hud-radio">EMBER FM 88.1</div>
+
+  <!-- Weapon wheel -->
+  <div id="wheel" class="hidden">
+    <div class="wheel-title">WEAPONS</div>
+    <div class="wheel-row" data-weapon="0"><b>1</b> FISTS <span>close</span></div>
+    <div class="wheel-row" data-weapon="1"><b>2</b> P9 PISTOL <span>fast</span></div>
+    <div class="wheel-row" data-weapon="2"><b>3</b> SMG <span>spray</span></div>
+    <div class="wheel-row" data-weapon="3"><b>4</b> RIFLE <span>heavy</span></div>
+    <div class="wheel-hint">Q / 1-4 to pick &middot; Click to shoot</div>
   </div>
-  <div id="hud-message"></div>
-  <div id="hud-crosshair">+</div>
-  <canvas id="hud-minimap" width="180" height="180"></canvas>
+
+  <!-- Garage -->
+  <div id="garage" class="hidden">
+    <div class="panel-title">EMBER GARAGE — Dario's shop</div>
+    <div class="garage-row"><span>Engine Lv <b id="eng-lv">1</b></span><span id="eng-cost">$800</span><button id="buy-engine">UPGRADE</button></div>
+    <div class="garage-row"><span>Armor Lv <b id="arm-lv">1</b></span><span id="arm-cost">$600</span><button id="buy-armor">UPGRADE</button></div>
+    <div class="garage-row"><span>Paint</span><span id="paint-name">Ember Orange</span><button id="buy-paint">REPAINT $300</button></div>
+    <div class="garage-cash">Cash: <b id="garage-cash">$0</b></div>
+    <div class="panel-hint">G or Esc to close &middot; upgrades apply to your current car</div>
+  </div>
+
+  <!-- Start screen -->
+  <div id="start-screen">
+    <div class="start-inner">
+      <div class="start-kicker">MAKE.FUN GTA6-01 &middot; AN ORIGINAL OPEN WORLD</div>
+      <h1>EMBER<br>BAY</h1>
+      <div class="start-sub">— HEAT LINE —</div>
+      <p class="start-story">Kade Venn is back in Ember Bay with nothing but a bad deal behind
+      him. Mara, Dario and June have one last run planned — eight jobs from
+      Portside to Sunset Beach, and the Ember Crown waiting at the end.</p>
+      <div class="start-buttons">
+        <button id="btn-start">START ENGINE</button>
+        <button id="btn-continue" class="hidden">CONTINUE</button>
+      </div>
+      <div class="start-controls">WASD drive / walk &middot; E enter car &middot; F carjack &middot; Click shoot
+      &middot; Q weapons &middot; R radio &middot; G garage &middot; M map &middot; P save &middot; drag mouse to look</div>
+      <div class="start-foot">A fictional island city. No Rockstar names, maps or assets.
+      Three.js r160 &middot; all sound synthesized in-browser.</div>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause-screen" class="hidden">
+    <div class="pause-inner">PAUSED
+      <div class="panel-hint">Esc to resume &middot; P to save</div>
+    </div>
+  </div>
 </div>
-
-<div id="start-screen">
-  <h1>EMBER BAY</h1>
-  <p class="tagline">NEON ROW &bull; OPEN ALL NIGHT</p>
-  <p class="story">A sun-soaked island of fast cars, loud radios and louder
-  ambitions. Earn respect, run the missions, outdrive the law —
-  and take the crown from the Ember King.</p>
-  <div class="buttons">
-    <button id="start-btn">START NEW GAME</button>
-    <button id="continue-btn" style="display:none">CONTINUE</button>
-  </div>
-  <div class="controls">
-    <p><b>WASD</b> drive / walk &nbsp; <b>Mouse</b> aim &nbsp; <b>Click</b> shoot</p>
-    <p><b>E</b> enter / exit car &nbsp; <b>F</b> jack a car &nbsp; <b>Space</b> brake</p>
-    <p><b>1–7</b> weapons &nbsp; <b>R</b> radio &nbsp; <b>V</b> radio off &nbsp; <b>G</b> garage &nbsp; <b>M</b> mission &nbsp; <b>P</b> pause</p>
-  </div>
-  <p class="missions-list">8 story missions: Neon Welcome &bull; Pizza Run &bull; Street Kings &bull; Getaway &bull; Harbor Heist &bull; Roadblock Run &bull; Volcano Run &bull; Ember King</p>
-</div>
-
-<div id="garage-panel">
-  <h2>EMBER GARAGE</h2>
-  <p>Cash: <span id="garage-cash">$1,500</span></p>
-  <button data-up="engine">ENGINE +$400</button>
-  <button data-up="armor">ARMOR +$350</button>
-  <button data-up="nitro">NITRO +$300</button>
-  <button id="garage-close">CLOSE</button>
-</div>
-
 <script src="vendor/three.min.js"></script>
 <script src="src/config.js"></script>
-<script src="src/input.js"></script>
 <script src="src/audio.js"></script>
-<script src="src/save.js"></script>
+<script src="src/input.js"></script>
 <script src="src/world.js"></script>
 <script src="src/vehicles.js"></script>
 <script src="src/people.js"></script>
 <script src="src/missions.js"></script>
 <script src="src/combat.js"></script>
+<script src="src/save.js"></script>
 <script src="src/hud.js"></script>
 <script src="src/shots.js"></script>
 <script src="src/main.js"></script>
-<script>
-  window.addEventListener('load', function () { EB.main.init(); });
-</script>
 </body>
 </html>
