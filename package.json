@@ -1,0 +1,1 @@
+{"description":"EMBER BAY — a complete open-world crime game in the browser (Three.js), built for the make.fun gta6-01 bounty.","license":"MIT","name":"ember-bay","scripts":{"handin":"node main.ts","start":"node serve.ts"},"type":"module","version":"1.0.0"}
