@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.js";
+import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.min.js";
 // combat.js — weapon wheel, wanted level, police chase + roadblock + heli.
 import { CFG } from "./config.js";
 import { buildPoliceCar, buildHelicopter } from "./vehicles.js";
@@ -79,15 +79,16 @@ export class Combat {
         bar.userData.blue.material.color.setHex(on ? 0x101050 : 0x2050ff);
       }
     });
-    // heli orbits overhead, fully visible, spotlight on the player
+    // heli orbits overhead, fully visible, spotlight on the player.
+    // Close + low (radius 12, height 9m — was 20 / 13.5): the heli sits
+    // in the upper frame, BIG, instead of a small dot at the top edge
+    // (fadli: "polisi heli mana").
     if (this.heli) {
       this.heliAngle += dt * 0.35;
       this.heli.position.set(
-        playerPos.x + Math.cos(this.heliAngle) * 20,
-        // 13.5m: low enough to sit fully inside the chase frame with its
-        // spotlight cone visible (was 17m — heli read tiny and high)
-        13.5 + Math.sin(t * 0.8) * 1.2,
-        playerPos.z + Math.sin(this.heliAngle) * 20 - 8);
+        playerPos.x + Math.cos(this.heliAngle) * 12,
+        9 + Math.sin(t * 0.8) * 1.0,
+        playerPos.z + Math.sin(this.heliAngle) * 12 - 8);
       this.heli.rotation.y = -this.heliAngle;
       this.heli.userData.mainRotor.rotation.y = t * 22;
       this.heli.userData.tailRotor.rotation.z = t * 30;
