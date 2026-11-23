@@ -3,90 +3,178 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EMBER BAY — Heat Line</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="styles.css">
+<title>EMBER BAY — Heat Line</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0f2e; font-family: "Segoe UI", Arial, sans-serif; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hidden { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
+  .panel { background: rgba(10, 8, 20, 0.55); border-radius: 8px; backdrop-filter: blur(2px); }
+  /* top-left */
+  #topleft { position: absolute; top: 14px; left: 16px; }
+  #cashrow { display: flex; align-items: baseline; gap: 10px; }
+  #cash { font-size: 34px; font-weight: 800; color: #7ed957; text-shadow: 0 2px 6px rgba(0,0,0,.7); letter-spacing: 1px; }
+  #rank-name { font-size: 15px; font-weight: 700; color: #ffc93c; letter-spacing: 3px; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+  #rank-bar { width: 190px; height: 7px; background: rgba(255,255,255,.25); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+  #rank-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffc93c, #ff7a3c); border-radius: 4px; }
+  #hprow { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  #hp-label { font-size: 13px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; }
+  #hp-bar { width: 130px; height: 11px; background: rgba(0,0,0,.55); border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,.35); }
+  #hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #4ade80, #a3e635); }
+  #weapon-name { font-size: 12px; font-weight: 700; background: rgba(10,8,20,.65); border: 1px solid rgba(255,255,255,.4); padding: 3px 8px; border-radius: 5px; letter-spacing: 1px; }
+  #location { margin-top: 8px; font-size: 14px; font-weight: 700; color: #ffd75e; text-shadow: 0 1px 4px #000; letter-spacing: .5px; }
+  /* top-center */
+  #fps-pill { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; font-weight: 600; background: rgba(10,8,20,.6); padding: 5px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,.25); }
+  /* top-right */
+  #topright { position: absolute; top: 14px; right: 16px; text-align: right; }
+  #stars { font-size: 26px; letter-spacing: 4px; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+  #stars .lit { color: #ffc93c; }
+  #stars .dim { color: rgba(255,255,255,.28); }
+  #weapon-bar { display: flex; gap: 6px; margin-top: 6px; }
+  .wslot { width: 62px; background: rgba(10,8,20,.62); border: 1px solid rgba(255,255,255,.35); border-radius: 6px; padding: 3px 2px 5px; text-align: center; }
+  .wslot.active { border-color: #ffc93c; box-shadow: 0 0 0 2px rgba(255,201,60,.55); background: rgba(60,40,0,.72); }
+  .wslot .num { display: inline-block; background: #ffc93c; color: #222; font-size: 11px; font-weight: 800; border-radius: 3px; padding: 1px 7px; }
+  .wslot .nm { font-size: 11px; font-weight: 700; margin-top: 3px; letter-spacing: .5px; }
+  .wslot .lk { font-size: 9px; color: #ffb3a7; font-weight: 700; letter-spacing: 1px; }
+  .wslot.locked { opacity: .62; }
+  /* left-middle */
+  #radio-name { position: absolute; left: 16px; top: 58%; font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #fff; text-shadow: 0 1px 4px #000; }
+  /* bottom-left mission card */
+  #mission-card { position: absolute; left: 16px; bottom: 16px; width: 330px; background: rgba(10,8,20,.62); border-radius: 10px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.18); }
+  #job-label { display: inline-block; background: #ffc93c; color: #222; font-size: 12px; font-weight: 800; border-radius: 10px; padding: 2px 9px; }
+  #mission-title { font-size: 16px; font-weight: 800; color: #ffc93c; letter-spacing: 2px; margin-top: 7px; }
+  #mission-objective { font-size: 14px; margin-top: 3px; line-height: 1.35; }
+  #mission-segments { display: flex; gap: 5px; margin-top: 9px; }
+  #mission-segments .seg { flex: 1; height: 8px; background: rgba(255,255,255,.22); border-radius: 4px; }
+  #mission-segments .seg.done { background: #7ed957; }
+  #mission-progress { width: 100%; height: 8px; background: rgba(255,255,255,.22); border-radius: 4px; margin-top: 7px; overflow: hidden; }
+  #mission-fill { height: 100%; width: 0%; background: #7ed957; }
+  #mission-progress-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-top: 4px; color: #ffe9a8; }
+  #mission-next { font-size: 12px; font-style: italic; color: #7ec8e3; margin-top: 8px; }
+  /* bottom-center hints */
+  #hints { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; color: rgba(255,255,255,.85); text-shadow: 0 1px 3px #000; white-space: nowrap; }
+  /* bottom-right */
+  #bottomright { position: absolute; right: 16px; bottom: 16px; text-align: right; }
+  #speed { font-size: 40px; font-weight: 800; text-shadow: 0 2px 8px rgba(0,0,0,.8); line-height: 1; }
+  #speed small { font-size: 16px; font-weight: 600; }
+  #minimap { width: 170px; height: 170px; border-radius: 50%; border: 3px solid #ffc93c; margin-top: 6px; background: #0c1220; box-shadow: 0 4px 18px rgba(0,0,0,.6); }
+  /* center prompts */
+  #carjack-prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: 20px; font-weight: 800; letter-spacing: 2px; background: rgba(10,8,20,.7); border: 2px solid #ffc93c; border-radius: 8px; padding: 8px 18px; }
+  #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 18px; font-weight: 700; background: rgba(10,8,20,.75); border-radius: 8px; padding: 8px 18px; color: #ffe9a8; }
+  /* overlays */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(8, 5, 18, 0.72); color: #fff; pointer-events: auto; }
+  /* start screen */
+  #start-screen { flex-direction: column; background: linear-gradient(180deg, rgba(20,8,40,.82), rgba(60,16,8,.78)); text-align: center; }
+  #start-screen h1 { font-size: 64px; letter-spacing: 10px; font-weight: 900; color: #fff; text-shadow: 0 0 30px rgba(255,120,60,.8), 0 4px 0 #7a2d00; }
+  #start-screen h1 .ember { color: #ffc93c; }
+  #start-screen h2 { font-size: 20px; letter-spacing: 6px; color: #ffb3a7; margin-top: 4px; font-weight: 700; }
+  #start-screen p.story { max-width: 560px; margin: 18px auto 0; font-size: 15px; line-height: 1.55; color: rgba(255,255,255,.92); }
+  .bigbtn { pointer-events: auto; cursor: pointer; margin-top: 22px; font-size: 20px; font-weight: 800; letter-spacing: 2px; color: #222; background: linear-gradient(180deg, #ffd75e, #ff9a3c); border: none; border-radius: 10px; padding: 13px 42px; box-shadow: 0 6px 0 #7a2d00, 0 10px 24px rgba(0,0,0,.5); }
+  .bigbtn:active { transform: translateY(3px); box-shadow: 0 3px 0 #7a2d00; }
+  .bigbtn.ghost { background: rgba(255,255,255,.14); color: #fff; box-shadow: none; border: 2px solid rgba(255,255,255,.5); font-size: 17px; padding: 10px 30px; }
+  #controls-grid { display: grid; grid-template-columns: repeat(4, auto); gap: 6px 22px; margin-top: 26px; font-size: 13px; color: rgba(255,255,255,.85); text-align: left; }
+  #controls-grid b { color: #ffc93c; }
+  /* pause map */
+  #map-overlay { flex-direction: column; }
+  #map-overlay h2 { font-size: 26px; letter-spacing: 4px; color: #ffc93c; margin-bottom: 10px; }
+  #bigmap { border: 3px solid #ffc93c; border-radius: 12px; background: #0c1220; }
+  #map-stats { margin-top: 12px; font-size: 14px; line-height: 1.7; text-align: center; color: rgba(255,255,255,.9); }
+  #map-stats b { color: #ffc93c; }
+  /* weapon wheel */
+  #wheel-overlay { background: rgba(8,5,18,.55); }
+  #wheel { display: flex; gap: 10px; }
+  .wheel-card { width: 110px; background: rgba(10,8,20,.8); border: 2px solid rgba(255,255,255,.35); border-radius: 10px; padding: 14px 8px; text-align: center; }
+  .wheel-card.active { border-color: #ffc93c; box-shadow: 0 0 18px rgba(255,201,60,.5); }
+  .wheel-card.locked { opacity: .55; }
+  .wheel-card .num { font-size: 22px; font-weight: 800; color: #ffc93c; }
+  .wheel-card .nm { font-size: 14px; font-weight: 700; margin-top: 6px; }
+  .wheel-card .ds { font-size: 11px; color: rgba(255,255,255,.7); margin-top: 4px; line-height: 1.4; }
+  /* garage */
+  #garage-overlay { flex-direction: column; }
+  #garage-overlay h2 { font-size: 26px; letter-spacing: 4px; color: #ffc93c; }
+  #garage-overlay .sub { font-size: 14px; color: rgba(255,255,255,.8); margin-top: 4px; }
+  .g-row { display: flex; align-items: center; gap: 16px; margin-top: 16px; background: rgba(10,8,20,.7); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 12px 18px; width: 520px; }
+  .g-row .g-name { width: 90px; font-size: 16px; font-weight: 800; }
+  .g-row .g-pips { display: flex; gap: 6px; }
+  .g-row .pip { width: 34px; height: 12px; border-radius: 6px; background: rgba(255,255,255,.2); }
+  .g-row .pip.on { background: #7ed957; }
+  .g-row .g-btn { margin-left: auto; cursor: pointer; font-size: 15px; font-weight: 800; color: #222; background: #ffc93c; border: none; border-radius: 8px; padding: 8px 16px; }
+  .g-row .g-btn:disabled { background: #666; color: #ccc; cursor: default; }
+  #garage-cash { margin-top: 16px; font-size: 18px; font-weight: 800; color: #7ed957; }
+  #busted { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; flex-direction: column; background: rgba(20,0,10,.78); color: #fff; }
+  #busted h1 { font-size: 56px; letter-spacing: 8px; color: #ff5b5b; }
+  #busted p { margin-top: 10px; font-size: 16px; }
+</style>
 </head>
 <body>
-<div id="game-root">
-  <canvas id="scene"></canvas>
-
-  <!-- HUD -->
-  <div id="hud" class="hidden">
-    <div id="wanted" title="Wanted level"></div>
-    <div id="cash-line"><span id="cash">$0</span><span id="respect-wrap"><span id="rank">STREET RAT</span><span id="respect-bar"><span id="respect-fill"></span></span></span></div>
-    <div id="health-wrap"><span id="health-label">HP</span><span id="health-bar"><span id="health-fill"></span></span><span id="weapon-slot">FISTS</span></div>
-    <div id="location-label">Portside · Harbor Rd</div>
-    <div id="fps-pill">Running at 60 fps</div>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="topleft">
+    <div id="cashrow"><span id="cash">$250</span><span id="rank-name">STREET RAT</span></div>
+    <div id="rank-bar"><div id="rank-fill"></div></div>
+    <div id="hprow"><span id="hp-label">HP</span><div id="hp-bar"><div id="hp-fill"></div></div><span id="weapon-name">FISTS</span></div>
+    <div id="location">Sunset Beach · Coastal Rd</div>
+  </div>
+  <div id="fps-pill">Running at 60 fps</div>
+  <div id="topright">
+    <div id="stars"></div>
     <div id="weapon-bar"></div>
-    <div id="speed-box"><span id="speed">0</span><span id="speed-unit">mph</span></div>
-    <div id="objective"><span id="objective-job">JOB 1/8</span><span id="objective-title">MISSION</span><span id="objective-text">Welcome to Ember Bay.</span><div id="objective-stages"></div><div id="objective-progress" class="hidden"><span id="objective-progress-bar"><span id="objective-progress-fill"></span></span><span id="objective-progress-label"></span></div><span id="objective-next"></span></div>
+  </div>
+  <div id="radio-name">RADIO OFF [R]</div>
+  <div id="mission-card">
+    <span id="job-label">JOB 1/8</span>
+    <div id="mission-title">FIRST WHEELS</div>
+    <div id="mission-objective">Get in the white car</div>
+    <div id="mission-segments"></div>
+    <div id="mission-progress"><div id="mission-fill"></div></div>
+    <div id="mission-progress-label"></div>
+    <div id="mission-next"></div>
+  </div>
+  <div id="hints">WASD drive · E enter · F carjack · Q weapons · G garage · M map · P save</div>
+  <div id="bottomright">
+    <div id="speed">0 <small>mph</small></div>
     <canvas id="minimap" width="170" height="170"></canvas>
-    <div id="radio-box">RADIO <span id="radio-name">OFF</span> <span id="radio-hint">[R]</span></div>
-    <div id="carjack-prompt" class="hidden"></div>
-    <div id="toast"></div>
-    <div id="center-msg"></div>
-    <div id="hint">WASD drive &middot; E enter &middot; F carjack &middot; Q weapons &middot; G garage &middot; M map &middot; P save</div>
   </div>
+  <div id="carjack-prompt" class="hidden">E — GET IN</div>
+  <div id="toast" class="hidden"></div>
+</div>
 
-  <!-- Pause map: city map + progression stats -->
-  <div id="map-screen" class="hidden">
-    <div class="map-inner">
-      <div class="map-title">EMBER BAY — CITY MAP</div>
-      <canvas id="map-canvas" width="520" height="520"></canvas>
-      <div id="map-stats"></div>
-      <div id="map-legend"><span class="lg"><i class="lg-dot lg-you"></i>YOU</span><span class="lg"><i class="lg-dot lg-mission"></i>MISSION</span><span class="lg"><i class="lg-dot lg-police"></i>POLICE</span><span class="lg"><i class="lg-dot lg-traffic"></i>TRAFFIC</span></div>
-      <div class="panel-hint">M / Esc to close</div>
-    </div>
-  </div>
-
-  <!-- Weapon wheel -->
-  <div id="wheel" class="hidden">
-    <div class="wheel-title">WEAPONS</div>
-    <div class="wheel-row" data-weapon="0"><b>1</b> FISTS <span>close</span></div>
-    <div class="wheel-row" data-weapon="1"><b>2</b> P9 PISTOL <span>fast</span></div>
-    <div class="wheel-row" data-weapon="2"><b>3</b> SMG <span>spray</span></div>
-    <div class="wheel-row" data-weapon="3"><b>4</b> RIFLE <span>heavy</span></div>
-    <div class="wheel-hint">Q / 1-4 to pick &middot; Click to shoot</div>
-  </div>
-
-  <!-- Garage -->
-  <div id="garage" class="hidden">
-    <div class="panel-title">EMBER GARAGE — Dario's shop</div>
-    <div class="garage-row"><span>Engine Lv <b id="eng-lv">1</b></span><span id="eng-cost">$800</span><button id="buy-engine">UPGRADE</button></div>
-    <div class="garage-row"><span>Armor Lv <b id="arm-lv">1</b></span><span id="arm-cost">$600</span><button id="buy-armor">UPGRADE</button></div>
-    <div class="garage-row"><span>Paint</span><span id="paint-name">Ember Orange</span><button id="buy-paint">REPAINT $300</button></div>
-    <div class="garage-cash">Cash: <b id="garage-cash">$0</b></div>
-    <div class="panel-hint">G or Esc to close &middot; upgrades apply to your current car</div>
-  </div>
-
-  <!-- Start screen -->
-  <div id="start-screen">
-    <div class="start-inner">
-      <div class="start-kicker">MAKE.FUN GTA6-01 &middot; AN ORIGINAL OPEN WORLD</div>
-      <h1>EMBER<br>BAY</h1>
-      <div class="start-sub">— HEAT LINE —</div>
-      <p class="start-story">Kade Venn is back in Ember Bay with nothing but a bad deal behind
-      him. Mara, Dario and June have one last run planned — eight jobs from
-      Portside to Sunset Beach, and the Ember Crown waiting at the end.</p>
-      <div class="start-buttons">
-        <button id="btn-start">START ENGINE</button>
-        <button id="btn-continue" class="hidden">CONTINUE</button>
-      </div>
-      <div class="start-controls">WASD drive / walk &middot; E enter car &middot; F carjack &middot; Click shoot
-      &middot; Q weapons &middot; R radio &middot; G garage &middot; M map &middot; P save &middot; drag mouse to look</div>
-      <div class="start-foot">A fictional island city. No Rockstar names, maps or assets.
-      Three.js r160 &middot; all sound synthesized in-browser.</div>
-    </div>
-  </div>
-
-  <!-- Pause -->
-  <div id="pause-screen" class="hidden">
-    <div class="pause-inner">PAUSED
-      <div class="panel-hint">Esc to resume &middot; P to save</div>
-    </div>
+<div id="start-screen" class="overlay">
+  <h1><span class="ember">EMBER</span> BAY</h1>
+  <h2>HEAT LINE</h2>
+  <p class="story">Kade Venn is back in Ember Bay. One last run at the Ember Crown — eight jobs
+  through Portside, Neon Row and the Cinder Docks, with the whole island's police on your tail.
+  Steal cars, outrun Air One, and take the crown.</p>
+  <button id="btn-start" class="bigbtn">START ENGINE</button>
+  <button id="btn-continue" class="bigbtn ghost hidden">CONTINUE — <span id="continue-label"></span></button>
+  <div id="controls-grid">
+    <span><b>W A S D</b> drive / walk</span><span><b>E</b> enter car</span><span><b>F</b> carjack</span><span><b>Q</b> weapon wheel</span>
+    <span><b>Space</b> shoot</span><span><b>R</b> radio</span><span><b>G</b> garage</span><span><b>M</b> pause map</span>
+    <span><b>P</b> save</span><span><b>N</b> mute</span><span><b>Esc</b> pause</span><span><b>Mouse</b> orbit camera</span>
   </div>
 </div>
+
+<div id="map-overlay" class="overlay hidden">
+  <h2>EMBER BAY — PAUSED</h2>
+  <canvas id="bigmap" width="640" height="420"></canvas>
+  <div id="map-stats"></div>
+  <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,.7)">M / Esc — resume</p>
+</div>
+
+<div id="wheel-overlay" class="overlay hidden"><div id="wheel"></div></div>
+
+<div id="garage-overlay" class="overlay hidden">
+  <h2>SOLIS GARAGE</h2>
+  <div class="sub">Mara's shop — spend cash, go faster, hit harder</div>
+  <div id="garage-rows"></div>
+  <div id="garage-cash"></div>
+  <p style="margin-top:12px;font-size:13px;color:rgba(255,255,255,.7)">G / Esc — close</p>
+</div>
+
+<div id="busted" class="hidden"><h1>BUSTED</h1><p>The Ember Bay PD caught you. -$100 bail, respect took a hit.</p></div>
+
 <script src="vendor/three.min.js"></script>
 <script src="src/config.js"></script>
 <script src="src/audio.js"></script>
