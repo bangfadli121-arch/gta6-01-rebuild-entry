@@ -1,143 +1,170 @@
-// EMBER BAY — Heat Line: combat.js
-// One job: fighting. Four weapons on a wheel, hitscan shots with tracers
-// and muzzle flash, gang enemies that shoot back, and the wanted heat
-// that violence earns.
-EB.combat = (function () {
-  var tracers = [];
-  var lastShotAt = 0;
-  var flash = null;
+// EMBER BAY — combat: 7 weapons, tracers + muzzle flash, the wanted
+// system (1-5), police chase, roadblocks at 3 stars, Air One at 4, busts.
+(function () {
+  var EB = window.EB || (window.EB = {});
+  var C = EB.config;
+  var scene = null, camera = null;
+  var wanted = 0, crimeTimer = 0, lastShot = 0, roadblock = null;
+  var tracers = [], onBusted = null, onWantedChange = null;
 
-  function makeFlash() {
-    flash = new THREE.PointLight(0xffc861, 0, 18);
-    EB.world.scene().add(flash);
+  function build(sc, cam) { scene = sc; camera = cam; }
+
+  function aimDir(ctx) {
+    if (ctx.inCar && ctx.car) return { x: Math.cos(ctx.car.heading), z: -Math.sin(ctx.car.heading) };
+    return { x: Math.cos(ctx.heading), z: -Math.sin(ctx.heading) };
   }
 
-  function addTracer(from, to, color) {
-    var geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(from.x, from.y, from.z),
-      new THREE.Vector3(to.x, to.y, to.z),
-    ]);
-    var line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color || 0xffe9a8, transparent: true, opacity: 0.95 }));
-    EB.world.scene().add(line);
-    tracers.push({ line: line, life: 0.12 });
+  function spawnTracer(from, to) {
+    var geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(from.x, from.y, from.z), new THREE.Vector3(to.x, to.y, to.z)]);
+    var line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.9 }));
+    scene.add(line);
+    tracers.push({ line: line, t: 0.09 });
   }
 
-  // Hitscan from a point in a direction. Returns what was hit, if anything.
-  function hitscan(from, dir, range, damage, isPlayer) {
-    var best = null, bestD = range;
-    // Enemies.
-    EB.missions.enemies().forEach(function (e) {
-      if (!e.alive) return;
-      var toE = { x: e.x - from.x, z: e.z - from.z };
-      var d = Math.sqrt(toE.x * toE.x + toE.z * toE.z);
-      if (d > range || d < 0.5) return;
-      var dot = (toE.x * dir.x + toE.z * dir.z) / d;
-      if (dot > 0.985 && d < bestD) { bestD = d; best = { kind: "enemy", obj: e, d: d }; }
-    });
-    // Pedestrians (shooting one is a crime — wanted goes up).
-    EB.people.list().forEach(function (p) {
-      var toP = { x: p.x - from.x, z: p.z - from.z };
-      var d = Math.sqrt(toP.x * toP.x + toP.z * toP.z);
-      if (d > range || d < 0.5) return;
-      var dot = (toP.x * dir.x + toP.z * dir.z) / d;
-      if (dot > 0.985 && d < bestD) { bestD = d; best = { kind: "ped", obj: p, d: d }; }
-    });
-    // Traffic / police cars.
-    EB.vehicles.cars().forEach(function (c) {
-      var toC = { x: c.x - from.x, z: c.z - from.z };
-      var d = Math.sqrt(toC.x * toC.x + toC.z * toC.z);
-      if (d > range || d < 0.5) return;
-      var dot = (toC.x * dir.x + toC.z * dir.z) / d;
-      if (dot > 0.98 && d < bestD) { bestD = d; best = { kind: "car", obj: c, d: d }; }
-    });
-    var end = {
-      x: from.x + dir.x * bestD,
-      y: from.y,
-      z: from.z + dir.z * bestD,
-    };
-    addTracer(from, end);
-    if (!best) return null;
-    if (best.kind === "enemy") {
-      best.obj.hp -= damage;
-      if (best.obj.hp <= 0) EB.missions.onEnemyKilled(best.obj);
-      else EB.audio.beep();
-    } else if (best.kind === "ped") {
-      if (isPlayer) {
-        EB.setWanted(EB.state.wanted + 1);
-        EB.people.scatter(best.obj.x, best.obj.z, 40);
-        EB.say("You shot a civilian — wanted up!");
-      }
-    } else if (best.kind === "car") {
-      best.obj.hp -= damage;
-      if (best.obj.isPolice && isPlayer) EB.setWanted(EB.state.wanted + 1);
-    }
-    return best;
+  function muzzle(pos) {
+    var f = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffdf6b, transparent: true, opacity: 0.95 }));
+    f.position.set(pos.x, pos.y, pos.z);
+    scene.add(f);
+    tracers.push({ line: f, t: 0.06, flash: true });
   }
 
-  function playerShoot() {
+  function shoot(ctx) {
     var now = performance.now() / 1000;
-    var w = EB.WEAPONS[EB.state.weapon];
-    if (now - lastShotAt < 1 / w.rate) return;
-    lastShotAt = now;
-    if (w.name === "FISTS") {
-      // A punch: short range, no tracer, no noise.
-      var p = EB.game.playerPos();
-      var h = EB.game.playerHeading();
-      var dir = { x: Math.sin(h), z: Math.cos(h) };
-      hitscan({ x: p.x, y: 1.2, z: p.z }, dir, w.range, w.damage, true);
-      return;
+    var w = C.WEAPONS[EB.state.weapon];
+    if (now - lastShot < 1 / w.rate) return false;
+    lastShot = now;
+    var origin = { x: ctx.x, y: ctx.inCar ? 1.4 : 1.5, z: ctx.z };
+    var dir = aimDir(ctx);
+    muzzle(origin);
+    var range = w.range;
+    var end = { x: origin.x + dir.x * range, y: origin.y, z: origin.z + dir.z * range };
+    var hit = null, hitDist = range;
+    // nearest entity inside a narrow cone in front
+    function consider(tx, tz, radius, obj) {
+      var dx = tx - origin.x, dz = tz - origin.z, d = Math.hypot(dx, dz);
+      if (d > range || d < 0.5) return;
+      var dot = (dx * dir.x + dz * dir.z) / d;
+      var spread = radius / Math.max(d, 1) + 0.02;
+      if (dot > 1 - spread && d < hitDist) { hit = obj; hitDist = d; }
     }
-    var pos = EB.game.playerPos();
-    var heading = EB.game.playerHeading();
-    var spread = (Math.random() - 0.5) * 2 * w.spread;
-    var dir2 = { x: Math.sin(heading + spread), z: Math.cos(heading + spread) };
-    hitscan({ x: pos.x, y: 1.4, z: pos.z }, dir2, w.range, w.damage, true);
-    if (flash) {
-      flash.position.set(pos.x + dir2.x * 1.2, 1.5, pos.z + dir2.z * 1.2);
-      flash.intensity = 90;
-      setTimeout(function () { if (flash) flash.intensity = 0; }, 60);
+    EB.vehicles.policeCars().forEach(function (c) { consider(c.x, c.z, 2.2, { type: "police", car: c }); });
+    EB.vehicles.trafficCars().forEach(function (c) { if (!c.parked) consider(c.x, c.z, 2.0, { type: "traffic", car: c }); });
+    EB.people.list().forEach(function (p) { consider(p.x, p.z, 0.8, { type: "ped", ped: p }); });
+    if (hit) {
+      end = { x: origin.x + dir.x * hitDist, y: origin.y, z: origin.z + dir.z * hitDist };
+      if (hit.type === "police") {
+        hit.car.hp = (hit.car.hp || 100) - w.dmg;
+        if (hit.car.hp <= 0) {
+          explode(hit.car.x, hit.car.z);
+          EB.vehicles.despawnOne(hit.car);
+          EB.state.respect = Math.min(1000, EB.state.respect + 15);
+          addWanted(1);
+        }
+      } else if (hit.type === "traffic") {
+        addWanted(1);
+        EB.people.flee(hit.car.x, hit.car.z, 20);
+      } else if (hit.type === "ped") {
+        EB.people.flee(hit.ped.x, hit.ped.z, 25);
+        addWanted(1);
+      }
+    } else {
+      EB.people.flee(origin.x + dir.x * 10, origin.z + dir.z * 10, 14);
     }
-    EB.audio.shot();
-    if (EB.state.wanted < 1 && EB.state.started) EB.setWanted(1);
+    spawnTracer(origin, end);
+    if (w.name === "FISTS" || w.name === "BAT") EB.audio.blip(180, 0.06, "square", 0.2);
+    else EB.audio.blip(w.name === "SHOTGUN" ? 120 : 320, 0.07, "square", 0.28);
+    crimeTimer = 0;
+    return true;
   }
 
-  return {
-    init: function () { makeFlash(); },
-    update: function (dt) {
-      for (var i = tracers.length - 1; i >= 0; i--) {
-        tracers[i].life -= dt;
-        tracers[i].line.material.opacity = Math.max(0, tracers[i].life / 0.12);
-        if (tracers[i].life <= 0) {
-          EB.world.scene().remove(tracers[i].line);
-          tracers.splice(i, 1);
-        }
-      }
-      if (EB.input.pressed("KeyQ")) EB.hud.toggleWheel();
-      var pick = EB.input.anyPressed(["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7"]);
-      if (pick) this.selectWeapon(parseInt(pick.slice(-1), 10) - 1);
-      if (EB.input.isMouseDown() && EB.state.started && !EB.state.paused && !EB.state.wheelOpen && !EB.state.garageOpen) {
-        playerShoot();
-      }
-    },
-    selectWeapon: function (i) {
-      if (i < 0 || i >= EB.WEAPONS.length) return;
-      // v10: locked weapons (BAT/SHOTGUN/SNIPER) refuse with a clear
-      // message naming the rank that unlocks them.
-      var w = EB.WEAPONS[i];
-      if (EB.state.respect < (w.unlockRespect || 0)) {
-        var rank = EB.RANKS[EB.util.rankFor(w.unlockRespect)].name;
-        EB.say(w.name + " is LOCKED — reach " + rank + " (" + w.unlockRespect + " respect)");
-        return;
-      }
-      EB.state.weapon = i;
-      if (EB.hud) EB.hud.refreshWeapon();
-      EB.say(EB.WEAPONS[i].name + " equipped");
-    },
-    // A gang member fires at the player: red tracer + sound + sometimes a hit.
-    enemyShoot: function (x, y, z, tx, ty, tz) {
-      addTracer({ x: x, y: y, z: z }, { x: tx, y: ty, z: tz }, 0xff4040);
-      EB.audio.enemyShot();
-    },
-    shootNow: playerShoot,
+  function explode(x, z) {
+    for (var i = 0; i < 5; i++) {
+      var s = new THREE.Mesh(new THREE.SphereGeometry(1 + Math.random(), 8, 6), new THREE.MeshBasicMaterial({ color: i % 2 ? 0xff6a1e : 0xffd75e, transparent: true, opacity: 0.85 }));
+      s.position.set(x + (Math.random() - 0.5) * 3, 1 + Math.random() * 2, z + (Math.random() - 0.5) * 3);
+      scene.add(s);
+      tracers.push({ line: s, t: 0.5, flash: true, grow: true });
+    }
+    EB.audio.blip(70, 0.4, "sawtooth", 0.4);
+  }
+
+  function addWanted(n) {
+    var before = wanted;
+    wanted = Math.max(0, Math.min(5, wanted + n));
+    crimeTimer = 0;
+    if (wanted !== before && onWantedChange) onWantedChange(wanted);
+  }
+  function setWanted(n) {
+    wanted = Math.max(0, Math.min(5, n));
+    crimeTimer = 0;
+    if (onWantedChange) onWantedChange(wanted);
+  }
+
+  function ensurePolice() {
+    var want = wanted;
+    var have = EB.vehicles.policeCars().length;
+    if (have < want) EB.vehicles.spawnPolice(want - have);
+    if (have > want) {
+      var list = EB.vehicles.policeCars();
+      for (var i = list.length - 1; i >= want; i--) EB.vehicles.despawnOne(list[i]);
+    }
+  }
+
+  function ensureRoadblock(ctx) {
+    if (wanted >= 3 && !roadblock) {
+      var ahead = 38;
+      var rx = ctx.x + Math.cos(ctx.heading) * ahead, rz = ctx.z - Math.sin(ctx.heading) * ahead;
+      var cars = [];
+      [-3.2, 3.2].forEach(function (off) {
+        var perp = ctx.heading + Math.PI / 2;
+        var c = EB.vehicles.makeCar("police", 0xf5f5f5, rx + Math.cos(perp) * off, rz - Math.sin(perp) * off, ctx.heading + Math.PI / 2);
+        c.roadblock = true; c.speed = 0;
+        cars.push(c);
+      });
+      roadblock = cars;
+    } else if (wanted < 3 && roadblock) {
+      roadblock.forEach(function (c) { EB.vehicles.despawnOne(c); });
+      roadblock = null;
+    }
+  }
+
+  function update(dt, ctx) {
+    // tracers fade
+    for (var i = tracers.length - 1; i >= 0; i--) {
+      var tr = tracers[i];
+      tr.t -= dt;
+      if (tr.flash) tr.line.material.opacity = Math.max(0, tr.t * 10);
+      if (tr.grow) tr.line.scale.multiplyScalar(1 + dt * 3);
+      if (tr.t <= 0) { scene.remove(tr.line); if (tr.line.geometry) tr.line.geometry.dispose(); tracers.splice(i, 1); }
+    }
+    // wanted decay when quiet
+    crimeTimer += dt;
+    if (wanted > 0 && crimeTimer > 25) { setWanted(wanted - 1); crimeTimer = 0; }
+    ensurePolice();
+    ensureRoadblock(ctx);
+    // helicopter at 4+
+    EB.vehicles.setHeliVisible(wanted >= 4);
+    if (wanted >= 4) EB.vehicles.updateHeli(dt, ctx.x, ctx.z, ctx.heading, performance.now() / 1000);
+    // busted?
+    var busted = false;
+    EB.vehicles.policeCars().forEach(function (c) {
+      var d = Math.hypot(c.x - ctx.x, c.z - ctx.z);
+      if (d < 3.4 && c.bustedTimer > 2) busted = true;
+    });
+    if (busted && onBusted) onBusted();
+  }
+
+  function reset() {
+    wanted = 0; crimeTimer = 0;
+    EB.vehicles.despawnPolice();
+    if (roadblock) { roadblock.forEach(function (c) { EB.vehicles.despawnOne(c); }); roadblock = null; }
+    EB.vehicles.setHeliVisible(false);
+  }
+
+  EB.combat = {
+    build: build, shoot: shoot, update: update, reset: reset,
+    addWanted: addWanted, setWanted: setWanted,
+    wanted: function () { return wanted; },
+    setOnBusted: function (fn) { onBusted = fn; },
+    setOnWantedChange: function (fn) { onWantedChange = fn; }
   };
 })();
