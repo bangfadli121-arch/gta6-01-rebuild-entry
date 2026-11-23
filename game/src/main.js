@@ -24,6 +24,7 @@ const state = {
   speed: 0, inCar: false, raceIdx: 0, cratesGot: 0, escapeLeft: 0,
   radioOn: false, stationName: "EMBER FM", toast: "", toastTimer: 0,
   objective: null, streetName: "Coastal Rd", heroCarPos: { x: 24, z: 164 },
+  policePos: [], heliPos: null, raceGates: [], // live minimap data (set in animate)
 };
 
 const errors = [];
@@ -32,6 +33,7 @@ window.addEventListener("error", (e) => errors.push(String(e.message || e.error)
 let renderer, scene, camera, clock;
 let world, hero, heroCar, crowd, missions, combat, hud, radio, input;
 let traffic = [];
+let patrol = []; // police cruisers always on the beat (wanted 0 included)
 let camMode = "foot";
 let dragYaw = 0;
 let fpsAcc = 0, fpsN = 0, fps = 0;
@@ -95,18 +97,45 @@ async function init() {
   heroCar.rotation.y = Math.PI / 2;
   scene.add(heroCar);
 
-  // traffic: 22 Kenney cars looping along road lanes (forward +Z)
+  // traffic: Kenney cars looping along road lanes (forward +Z).
+  // The first 20 are packed into the coastal corridor (Coastal Rd x=168
+  // + the two roads beside it, z -20..200) so the drive/chase frames read
+  // busy — fadli: "kenapa sepi bngt". The rest spread across the city.
   const trafficModels = [assets.cars.sedan, assets.cars.sedanSports, assets.cars.hatchSports, assets.cars.suv, assets.cars.van, assets.cars.taxi, assets.cars.truck].filter(Boolean);
   for (let i = 0; i < CFG.trafficCount; i++) {
     const model = trafficModels.length ? trafficModels[i % trafficModels.length] : null;
     const c = buildTrafficCar(model);
-    const lane = (Math.floor(Math.random() * 11) - 5) * CFG.roadSpacing;
-    const vertical = Math.random() < 0.5;
-    const off = (Math.random() < 0.5 ? -1 : 1) * 3;
-    const along = (Math.random() * 2 - 1) * 200;
+    let lane, vertical, off, along;
+    if (i < 20) {
+      vertical = true;
+      lane = [168, 168, 126, 84][i % 4];
+      off = (i % 2 ? -1 : 1) * 3;
+      along = -20 + Math.random() * 220; // z -20..200: cars AHEAD of the
+      // hero's final position too (the chase hero drives ~50m north during
+      // the settle, so a 90..200 band leaves the near road empty)
+    } else {
+      lane = (Math.floor(Math.random() * 11) - 5) * CFG.roadSpacing;
+      vertical = Math.random() < 0.5;
+      off = (Math.random() < 0.5 ? -1 : 1) * 3;
+      along = (Math.random() * 2 - 1) * 200;
+    }
     c.position.set(vertical ? lane + off : along, 0, vertical ? along : lane + off);
-    c.userData = { vertical, lane: lane + off, dir: Math.random() < 0.5 ? 1 : -1, speed: 6 + Math.random() * 6 };
+    // MERGE into userData, do not replace it — buildTrafficCar stores the
+    // wheels there, and the old `c.userData = {...}` silently killed the
+    // wheel spin (the || [] guard just hid it).
+    Object.assign(c.userData, { vertical, lane: lane + off, dir: Math.random() < 0.5 ? 1 : -1, speed: 6 + Math.random() * 6 });
     scene.add(c); traffic.push(c);
+  }
+  // police patrol: cruisers always on the beat (Coastal Rd + Neon Row),
+  // so the street reads policed even at wanted 0 — fadli: "polisi kmna".
+  // Both drive SOUTH (toward the drive camera) into the frame.
+  for (let i = 0; i < (CFG.patrolCount || 2); i++) {
+    const p = buildPoliceCar(assets.cars.police);
+    const lane = i === 0 ? 168 : 126;
+    const off = (i % 2 ? -1 : 1) * 3;
+    p.position.set(lane + off, 0, i === 0 ? 40 : 110);
+    Object.assign(p.userData, { vertical: true, lane: lane + off, dir: 1, speed: 8 + Math.random() * 2 });
+    scene.add(p); patrol.push(p);
   }
 
   crowd = new PedCrowd(scene);
@@ -267,7 +296,8 @@ function updatePlayer(dt) {
 }
 
 function updateTraffic(dt) {
-  for (const c of traffic) {
+  // traffic + police patrol share the lane loop; patrol light bars flash
+  for (const c of traffic.concat(patrol)) {
     const u = c.userData;
     const step = u.speed * dt * u.dir;
     if (u.vertical) {
@@ -282,6 +312,12 @@ function updateTraffic(dt) {
       c.rotation.y = u.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     }
     for (const wh of c.userData.wheels || []) wh.rotation.x += u.speed * dt * 2.2 * u.dir;
+    const bar = c.userData.lightBar;
+    if (bar) {
+      const on = Math.floor(performance.now() / 250) % 2 === 0;
+      bar.userData.red.material.color.setHex(on ? 0xff2020 : 0x550000);
+      bar.userData.blue.material.color.setHex(on ? 0x101050 : 0x2050ff);
+    }
   }
 }
 
@@ -320,6 +356,11 @@ function animate() {
     crowd.update(dt, t);
     missions.update(dt, t, { x: state.playerX, z: state.playerZ }, state.inCar);
     combat.update(dt, t, { x: state.playerX, z: state.playerZ }, state.heading, state.speed);
+    // live minimap data: police (patrol + chase) + heli positions, race gates
+    state.policePos = patrol.map((p) => ({ x: p.position.x, z: p.position.z }))
+      .concat(combat.police.map((p) => ({ x: p.mesh.position.x, z: p.mesh.position.z })));
+    state.heliPos = combat.heli ? { x: combat.heli.position.x, z: combat.heli.position.z } : null;
+    state.raceGates = missions.checkpoints.map((c) => ({ x: c.position.x, z: c.position.z }));
     world.update(t, dt);
     updateObjective();
     hud.update();
@@ -369,7 +410,7 @@ const api = {
   },
   info() {
     let meshes = 0; scene.traverse((o) => { if (o.isMesh) meshes++; });
-    return { meshes, buildings: world.buildings.length, peds: crowd.peds.length, traffic: traffic.length, onRoad: crowd.onRoadCount() };
+    return { meshes, buildings: world.buildings.length, peds: crowd.peds.length, traffic: traffic.length, patrol: patrol.length, onRoad: crowd.onRoadCount() };
   },
 };
 
