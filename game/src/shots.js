@@ -21,6 +21,7 @@ export function stageShot(name, api) {
     api.setWanted(0);
     api.setCamera("chase");
     api.setSpeed(55);
+    api.placePoliceForShot();
   } else if (name === "chase") {
     // getaway: wanted 4, heli + police visible, gantry billboard ahead.
     // Start at z=170 so after the settle the billboard (~50m ahead) reads
@@ -31,6 +32,7 @@ export function stageShot(name, api) {
     api.setCamera("chase");
     api.setSpeed(64);
     api.placeHeliForShot();
+    api.placePoliceForShot();
   } else if (name === "mission") {
     // on foot at the Dockside marker, crates + buildings around.
     // Hero faces SOUTH (heading 0) toward the crates at (-126,-84); the
