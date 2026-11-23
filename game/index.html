@@ -3,111 +3,94 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
 <title>EMBER BAY — Heat Line</title>
+  <link rel="icon" href="data:,">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1c1c28; font-family: Arial, sans-serif; }
-  #game { position: fixed; inset: 0; }
-  #game canvas { display: block; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1030; font-family: Arial, Helvetica, sans-serif; }
+  #app, #app canvas { position: absolute; inset: 0; }
   .hidden { display: none !important; }
-  /* ---------- HUD ---------- */
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 10; }
-  .topleft { position: absolute; top: 14px; left: 16px; }
-  #cash { font-size: 34px; font-weight: bold; color: #7ed957; text-shadow: 0 2px 4px #000; }
-  #rank { font-size: 15px; letter-spacing: 3px; color: #ffe3a3; text-shadow: 0 1px 3px #000; }
-  .hpwrap { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-  .hpbar-outer { width: 150px; height: 10px; background: rgba(0,0,0,.55); border-radius: 5px; overflow: hidden; }
-  #hpbar { height: 100%; width: 100%; background: linear-gradient(90deg, #7ed957, #2ec4b6); }
-  #weapon { background: rgba(0,0,0,.6); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-  #loc { margin-top: 6px; font-size: 13px; color: #ffe3a3; text-shadow: 0 1px 3px #000; }
-  #stars { position: absolute; top: 14px; right: 16px; font-size: 26px; color: #ffd23e; text-shadow: 0 2px 4px #000; letter-spacing: 2px; }
-  #weapons { position: absolute; top: 48px; right: 16px; display: flex; gap: 6px; }
-  .wslot { width: 74px; background: rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 4px; text-align: center; font-size: 11px; }
-  .wslot.active { border-color: #ffd23e; background: rgba(255,210,62,.25); }
-  .wslot .wnum { display: block; font-size: 13px; font-weight: bold; color: #ffd23e; }
-  .wslot .wlock { font-size: 10px; color: #ccc; }
-  /* mission card */
-  #missioncard { position: absolute; left: 16px; bottom: 16px; width: 300px; background: rgba(0,0,0,.55); border-radius: 10px; padding: 12px 14px; }
-  #job { display: inline-block; background: #ffd23e; color: #1c1c28; font-weight: bold; font-size: 12px; padding: 2px 8px; border-radius: 8px; }
-  #mtitle { font-size: 18px; font-weight: bold; color: #ffd23e; margin-top: 6px; letter-spacing: 1px; }
-  #mobj { font-size: 13px; margin-top: 4px; color: #eee; }
-  #mstage { font-size: 12px; margin-top: 6px; color: #7ed957; font-weight: bold; }
-  #mnext { font-size: 12px; margin-top: 4px; color: #7ec8e3; font-style: italic; }
-  #hints { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000; }
-  #radio { position: absolute; left: 16px; top: 46%; font-size: 13px; color: #fff; text-shadow: 0 1px 3px #000; }
-  #speed { position: absolute; right: 200px; bottom: 60px; font-size: 34px; font-weight: bold; text-shadow: 0 2px 4px #000; }
-  #speed small { font-size: 14px; }
-  /* minimap */
-  #mapwrap { position: absolute; right: 16px; bottom: 16px; width: 170px; height: 170px; border-radius: 50%; border: 3px solid #ffd23e; overflow: hidden; background: #e8e2d2; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+  .panel { position: absolute; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); z-index: 5; }
+  #hud-tl { top: 12px; left: 14px; }
+  #cash { font-size: 34px; font-weight: 900; color: #7ed957; }
+  #rank { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #ffd76a; margin-left: 8px; }
+  #hp-bar { width: 170px; height: 9px; background: rgba(0,0,0,.55); border-radius: 5px; margin-top: 5px; overflow: hidden; }
+  #hp-fill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #7ed957, #2ec4b6); }
+  #hp-label { font-size: 12px; font-weight: 700; margin-top: 3px; }
+  #loc { font-size: 13px; color: #ffe9a8; margin-top: 4px; }
+  #stars { position: absolute; top: 12px; right: 16px; font-size: 26px; color: #ffd76a; letter-spacing: 3px; }
+  #weapons { position: absolute; top: 48px; right: 14px; display: flex; gap: 6px; }
+  .wpn { width: 62px; background: rgba(20,16,40,.72); border: 1px solid rgba(255,255,255,.25); border-radius: 7px; padding: 5px 2px 4px; text-align: center; }
+  .wpn.cur { border-color: #ffd76a; box-shadow: 0 0 0 2px rgba(255,215,106,.5); }
+  .wpn b { display: block; font-size: 11px; color: #ffd76a; }
+  .wpn span { display: block; font-size: 9px; font-weight: 700; color: #fff; margin-top: 2px; }
+  .wpn i { display: block; font-size: 8px; font-style: normal; color: #ff8a8a; }
+  .wpn.locked { opacity: .55; }
+  #job { position: absolute; left: 14px; bottom: 14px; width: 300px; background: rgba(12,10,30,.72); border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: 12px 14px; color: #fff; }
+  #job-num { display: inline-block; background: #ffd76a; color: #1a1030; font-size: 11px; font-weight: 900; border-radius: 10px; padding: 2px 8px; }
+  #job-title { font-size: 19px; font-weight: 900; letter-spacing: 1px; color: #ffd76a; margin-top: 6px; }
+  #job-obj { font-size: 13px; margin-top: 3px; }
+  #job-segs { display: flex; gap: 4px; margin-top: 8px; }
+  #job-segs span { flex: 1; height: 6px; background: rgba(255,255,255,.25); border-radius: 3px; }
+  #job-segs span.on { background: #7ed957; }
+  #job-stage { font-size: 12px; font-weight: 800; color: #7ed957; margin-top: 6px; }
+  #job-next { font-size: 12px; color: #9fd8e8; margin-top: 4px; font-style: italic; }
+  #minimap-wrap { position: absolute; right: 14px; bottom: 14px; width: 170px; height: 170px; border-radius: 50%; overflow: hidden; border: 3px solid #ffd76a; box-shadow: 0 0 0 3px rgba(0,0,0,.35); background: #33523f; }
   #minimap { width: 100%; height: 100%; display: block; }
-  #compass { position: absolute; right: 92px; bottom: 190px; width: 20px; height: 20px; background: rgba(0,0,0,.6); color: #fff; border-radius: 50%; text-align: center; font-size: 12px; line-height: 20px; }
-  #toast { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 8px 18px; border-radius: 18px; font-size: 14px; }
-  #prompt { position: absolute; bottom: 220px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.65); padding: 8px 16px; border-radius: 8px; font-size: 15px; font-weight: bold; color: #ffd23e; }
-  /* ---------- start / pause ---------- */
-  .overlay { position: fixed; inset: 0; background: linear-gradient(160deg, #2e5aa8 0%, #ff7e3d 60%, #ffb347 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; z-index: 20; text-align: center; }
-  .overlay h1 { font-size: 64px; letter-spacing: 6px; text-shadow: 0 4px 12px rgba(0,0,0,.5); }
-  .overlay h2 { font-size: 22px; letter-spacing: 4px; color: #ffe3a3; margin-top: 4px; }
-  .overlay p { margin-top: 18px; font-size: 15px; max-width: 560px; line-height: 1.6; }
-  .overlay button { margin-top: 26px; pointer-events: auto; background: #ffd23e; color: #1c1c28; border: none; font-size: 20px; font-weight: bold; padding: 14px 44px; border-radius: 30px; cursor: pointer; }
-  .overlay button:hover { background: #ffe066; }
-  #pause { background: rgba(10,10,20,.82); }
-  #pausemap { width: 520px; height: 520px; border: 3px solid #ffd23e; border-radius: 8px; background: #e8e2d2; }
+  #speedo { position: absolute; right: 196px; bottom: 22px; font-size: 40px; font-weight: 900; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+  #speedo small { font-size: 15px; font-weight: 700; }
+  #radio { position: absolute; left: 14px; top: 50%; font-size: 13px; font-weight: 700; color: #fff; }
+  #hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,.85); text-shadow: 0 1px 3px #000; white-space: nowrap; }
+  #toast { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); background: rgba(12,10,30,.8); border: 1px solid #ffd76a; border-radius: 8px; padding: 8px 18px; font-size: 14px; font-weight: 700; color: #ffd76a; }
+  #prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); background: rgba(12,10,30,.85); border: 1px solid #fff; border-radius: 8px; padding: 9px 20px; font-size: 16px; font-weight: 900; color: #fff; }
+  #start, #pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(26,16,48,.88), rgba(255,122,46,.55)); color: #fff; z-index: 10; text-align: center; }
+  #start h1, #pause h1 { font-size: 64px; font-weight: 900; letter-spacing: 4px; color: #ffd76a; text-shadow: 0 4px 0 #ff2ea6, 0 8px 24px rgba(0,0,0,.6); }
+  #start p, #pause p { font-size: 16px; margin-top: 10px; max-width: 560px; line-height: 1.5; }
+  #start button, #pause button { margin-top: 22px; font-size: 19px; font-weight: 900; padding: 13px 42px; border: none; border-radius: 10px; background: #ffd76a; color: #1a1030; cursor: pointer; }
+  #start button:hover { background: #ffe9a8; }
+  #start .sub { font-size: 13px; color: #ffe9a8; margin-top: 14px; }
+  #pause canvas { margin-top: 16px; border: 3px solid #ffd76a; border-radius: 12px; background: #33523f; }
 </style>
 </head>
 <body>
-<div id="game"></div>
-
-<div id="hud" class="hidden">
-  <div class="topleft">
-    <div><span id="cash">$250</span> <span id="rank">STREET RAT</span></div>
-    <div class="hpwrap"><span style="font-size:12px">HP</span><div class="hpbar-outer"><div id="hpbar"></div></div><span id="weapon">FISTS</span></div>
-    <div id="loc">Sunset Beach · Coastal Rd</div>
-  </div>
-  <div id="stars">☆☆☆☆☆</div>
-  <div id="weapons">
-    <div class="wslot active"><span class="wnum">1</span><span class="wlock">FISTS</span></div>
-    <div class="wslot"><span class="wnum">2</span><span class="wlock">P9 PISTOL</span></div>
-    <div class="wslot"><span class="wnum">3</span><span class="wlock">SMG</span></div>
-    <div class="wslot"><span class="wnum">4</span><span class="wlock">RIFLE</span></div>
-    <div class="wslot"><span class="wnum">5</span><span class="wlock">BAT LOCKED</span></div>
-    <div class="wslot"><span class="wnum">6</span><span class="wlock">SHOTGUN LOCKED</span></div>
-    <div class="wslot"><span class="wnum">7</span><span class="wlock">SNIPER LOCKED</span></div>
-  </div>
-  <div id="missioncard">
-    <span id="job">JOB 1/8</span>
-    <div id="mtitle">First Wheels</div>
-    <div id="mobj">Get in the Skyline and drive to the marker</div>
-    <div id="mstage"></div>
-    <div id="mnext">NEXT — Portside Pickup: Meet Mara at the docks</div>
-  </div>
-  <div id="hints">WASD drive · E enter · F carjack · Q weapons · G garage · M map · P save</div>
-  <div id="radio">RADIO OFF [R]</div>
-  <div id="speed">0 <small>mph</small></div>
-  <div id="mapwrap"><canvas id="minimap" width="170" height="170"></canvas></div>
-  <div id="compass">N</div>
-  <div id="toast" class="hidden"></div>
-  <div id="prompt" class="hidden"></div>
+<div id="app"></div>
+<div class="panel" id="hud-tl">
+  <span id="cash">$250</span><span id="rank">STREET RAT</span>
+  <div id="hp-bar"><span id="hp-fill"></span></div>
+  <div id="hp-label">HP <span id="hp-num"></span></div>
+  <div id="loc">Sunset Beach · Coastal Rd</div>
 </div>
-
-<div id="start" class="overlay">
+<div class="panel" id="stars">☆☆☆☆☆</div>
+<div class="panel" id="weapons"></div>
+<div class="panel" id="job">
+  <span id="job-num">JOB 1/8</span>
+  <div id="job-title">First Wheels</div>
+  <div id="job-obj">Get in the Skyline</div>
+  <div id="job-segs"></div>
+  <div id="job-stage"></div>
+  <div id="job-next">NEXT — Portside Pickup: Drive to Mara at Portside</div>
+</div>
+<div id="minimap-wrap"><canvas id="minimap" width="170" height="170"></canvas></div>
+<div class="panel" id="speedo"><span id="speed">0</span> <small>mph</small></div>
+<div class="panel" id="radio">RADIO OFF [R]</div>
+<div class="panel" id="hint">WASD drive · E enter · F carjack · Q weapons · G garage · M map · P save</div>
+<div class="panel hidden" id="toast"></div>
+<div class="panel hidden" id="prompt"></div>
+<div id="start">
   <h1>EMBER BAY</h1>
-  <h2>HEAT LINE</h2>
-  <p>Open-world crime on a golden-hour island. Eight story missions, police chases,
-  a helicopter, street races and the Skyline GT-R. Kade Venn is back — and the city
-  is waiting.</p>
-  <button id="startbtn">START ENGINE</button>
-  <button id="continuebtn" class="hidden">CONTINUE</button>
-  <p style="font-size:12px; opacity:.85">WASD move / drive · E enter car · F carjack · Q weapons · G garage · R radio · M map · P save</p>
+  <p>Heat Line — an open-world crime game. 8 story missions, police chases, roadblocks, a helicopter, street races, garage upgrades and a living island city. Kade Venn is back, and the Ember GT is waiting.</p>
+  <button id="start-btn">START ENGINE</button>
+  <button id="continue-btn">CONTINUE</button>
+  <div class="sub">WASD move / drive · E enter car · F carjack · Q weapons · G garage · R radio · M map · P save</div>
 </div>
-
-<div id="pause" class="overlay hidden">
-  <h2 style="font-size:28px">PAUSED — EMBER BAY MAP</h2>
-  <canvas id="pausemap" width="520" height="520"></canvas>
-  <p style="font-size:13px">Press M or Esc to resume</p>
+<div id="pause" class="hidden">
+  <h1>EMBER BAY</h1>
+  <p>Paused — M / Esc to resume</p>
+  <canvas id="bigmap" width="420" height="420"></canvas>
 </div>
-
-<script src="vendor/three.min.js"></script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
