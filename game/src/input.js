@@ -1,20 +1,21 @@
-// EMBER BAY input — round 5, written from zero.
-export function makeInput() {
-  const keys = {};
-  const pressed = new Set();
-  window.addEventListener("keydown", e => {
-    if (!keys[e.code]) pressed.add(e.code);
-    keys[e.code] = true;
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
-  });
-  window.addEventListener("keyup", e => { keys[e.code] = false; });
-  return {
-    get forward() { return keys.KeyW || keys.ArrowUp; },
-    get back() { return keys.KeyS || keys.ArrowDown; },
-    get left() { return keys.KeyA || keys.ArrowLeft; },
-    get right() { return keys.KeyD || keys.ArrowRight; },
-    get run() { return keys.ShiftLeft || keys.ShiftRight; },
-    wasPressed(code) { const hit = pressed.has(code); if (hit) pressed.delete(code); return hit; },
-    clearPressed() { pressed.clear(); },
-  };
+// input.js — keyboard state + edge-triggered key taps.
+export class Input {
+  constructor() {
+    this.keys = {};
+    this.pressed = {};
+    this.onKey = null;
+    window.addEventListener("keydown", (e) => {
+      if (!this.keys[e.code]) this.pressed[e.code] = true;
+      this.keys[e.code] = true;
+      // onKey fires on the initial press only — holding a key must not spam
+      // the handler with auto-repeat keydown events
+      if (!e.repeat && this.onKey) this.onKey(e.code);
+      if (["ArrowUp", "ArrowDown", "Space"].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener("keyup", (e) => { this.keys[e.code] = false; });
+    window.addEventListener("blur", () => { this.keys = {}; });
+  }
+  down(code) { return !!this.keys[code]; }
+  tap(code) { const v = !!this.pressed[code]; this.pressed[code] = false; return v; }
+  endFrame() { this.pressed = {}; }
 }
