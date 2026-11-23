@@ -130,19 +130,32 @@ export function buildWorld(scene, assets) {
       new THREE.MeshLambertMaterial({ map: t }));
     m.rotation.x = -Math.PI / 2;
     if (r.rot) m.rotation.z = Math.PI / 2;
-    m.position.set(r.x, 0.02, r.z); scene.add(m);
+    // EW roads sit 0.015 above NS roads: the two planes overlap at every
+    // intersection and z-fight at the same height (flickering asphalt)
+    m.position.set(r.x, r.rot ? 0.035 : 0.02, r.z); scene.add(m);
   }
-  // sidewalks: light strips along roads (thin boxes, slightly raised)
+  // sidewalks: light strips along roads, SEGMENTED between intersections.
+  // The old 420m full-length strips cut straight across every cross-road
+  // and read as tan bars on the asphalt — "trotoar sampai ke jalan".
+  // Segments stop 1m short of each cross-road so the asphalt stays
+  // continuous; all 440 segments merge into ONE geometry (1 draw call).
   const walkMat = new THREE.MeshLambertMaterial({ color: P.sidewalk });
+  const walkGeos = [];
+  const segLen = CFG.roadSpacing - CFG.roadWidth - 2; // 28m, 1m gap each end
   for (let i = -5; i <= 5; i++) {
     const c = i * CFG.roadSpacing;
     for (const s of [-1, 1]) {
-      const sw1 = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.18, 420), walkMat);
-      sw1.position.set(c + s * (CFG.roadWidth / 2 + 2.2), 0.09, 0); scene.add(sw1);
-      const sw2 = new THREE.Mesh(new THREE.BoxGeometry(420, 0.18, 2.5), walkMat);
-      sw2.position.set(0, 0.09, c + s * (CFG.roadWidth / 2 + 2.2)); scene.add(sw2);
+      const off = c + s * (CFG.roadWidth / 2 + 2.2);
+      for (let j = -5; j <= 4; j++) {
+        const bc = (j + 0.5) * CFG.roadSpacing;
+        const g1 = new THREE.BoxGeometry(2.5, 0.18, segLen);
+        g1.translate(off, 0.09, bc); walkGeos.push(g1);
+        const g2 = new THREE.BoxGeometry(segLen, 0.18, 2.5);
+        g2.translate(bc, 0.09, off); walkGeos.push(g2);
+      }
     }
   }
+  scene.add(new THREE.Mesh(mergeGeometries(walkGeos), walkMat));
   // zebra crossings on the main coastal road (x = 168) and centre road
   const zebraMat = new THREE.MeshBasicMaterial({ color: 0xf2f2e8 });
   for (const zc of [-84, 0, 84, 168]) {
