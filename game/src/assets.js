@@ -4,7 +4,7 @@
 // cache is never corrupted). Returns null on failure so the caller can
 // fall back to a procedural model.
 import * as THREE from "three";
-import { GLTFLoader } from "../vendor/loaders/GLTFLoader.js";
+import { GLTFLoader } from "../vendor/loaders/GLTFLoader.min.js";
 
 const loader = new GLTFLoader();
 const cache = new Map();
