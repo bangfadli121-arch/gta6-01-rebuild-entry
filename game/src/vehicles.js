@@ -3,7 +3,7 @@
 // Traffic / police = Kenney car GLBs. Procedural RoundedBox fallback if a
 // GLB fails to load.
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.js";
+import { RoundedBoxGeometry } from "../vendor/RoundedBoxGeometry.min.js";
 
 const BLUE = 0x1e56d8;
 
@@ -134,17 +134,28 @@ export function buildPoliceCar(policeModel) {
   } else {
     car = buildProceduralCoupe(0x1a1a1e);
   }
-  // light bar (red/blue, flashing via combat.js)
+  // light bar (red/blue, flashing via combat.js / updateTraffic).
+  // BIG: wide white base + tall beacons, so it reads as POLICE from 30m+.
   const bar = new THREE.Group();
-  const base = new THREE.Mesh(new RoundedBoxGeometry(1.1, 0.08, 0.3, 1, 0.02), new THREE.MeshStandardMaterial({ color: 0x222226 }));
-  base.position.y = 1.12; bar.add(base);
-  const red = new THREE.Mesh(new RoundedBoxGeometry(0.45, 0.14, 0.24, 1, 0.03), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
-  red.position.set(-0.3, 1.22, 0); bar.add(red);
-  const blue = new THREE.Mesh(new RoundedBoxGeometry(0.45, 0.14, 0.24, 1, 0.03), new THREE.MeshBasicMaterial({ color: 0x2050ff }));
-  blue.position.set(0.3, 1.22, 0); bar.add(blue);
+  const base = new THREE.Mesh(new RoundedBoxGeometry(1.6, 0.1, 0.4, 1, 0.02), new THREE.MeshStandardMaterial({ color: 0xf2f2ee }));
+  base.position.y = 1.14; bar.add(base);
+  const red = new THREE.Mesh(new RoundedBoxGeometry(0.7, 0.26, 0.34, 1, 0.04), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
+  red.position.set(-0.42, 1.3, 0); bar.add(red);
+  const blue = new THREE.Mesh(new RoundedBoxGeometry(0.7, 0.26, 0.34, 1, 0.04), new THREE.MeshBasicMaterial({ color: 0x2050ff }));
+  blue.position.set(0.42, 1.3, 0); bar.add(blue);
   bar.userData.red = red; bar.userData.blue = blue;
   car.add(bar);
   car.userData.lightBar = bar;
+  // black-white two-tone: black roof panel + black side stripes, so the
+  // cruiser reads as POLICE at a glance (the Kenney texture is mostly
+  // white, so at distance it looked like any white traffic car).
+  const black = new THREE.MeshStandardMaterial({ color: 0x0c0e12, metalness: 0.4, roughness: 0.5 });
+  const roof = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.06, 1.7, 1, 0.02), black);
+  roof.position.set(0, 1.08, -0.2); car.add(roof);
+  for (const s of [-1, 1]) {
+    const stripe = new THREE.Mesh(new RoundedBoxGeometry(0.06, 0.34, 3.4, 1, 0.02), black);
+    stripe.position.set(s * 1.0, 0.62, 0); car.add(stripe);
+  }
   return car;
 }
 
@@ -161,6 +172,10 @@ export function buildHelicopter() {
   cockpit.scale.set(0.9, 0.8, 1.1); cockpit.position.set(0, 0.25, 1.5); heli.add(cockpit);
   const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.45, 3.6, 8), bodyMat);
   boom.rotation.x = Math.PI / 2; boom.position.set(0, 0.35, -2.8); heli.add(boom);
+  // white stripe along the tail boom: the dark navy heli needs a bright
+  // mark to read against the dusk sky at a glance.
+  const boomStripe = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.1, 3.2, 1, 0.02), whiteMat);
+  boomStripe.position.set(0, 0.68, -2.8); heli.add(boomStripe);
   const fin = new THREE.Mesh(new RoundedBoxGeometry(0.9, 1.3, 0.15, 1, 0.05), bodyMat);
   fin.position.set(0, 0.9, -4.4); heli.add(fin);
   const tailRotor = new THREE.Group();
@@ -171,7 +186,8 @@ export function buildHelicopter() {
   const mainRotor = new THREE.Group();
   const bladeMat = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.5, roughness: 0.5 });
   for (let i = 0; i < 2; i++) {
-    const blade = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.07, 7.2, 1, 0.03), bladeMat);
+    // 8.6m blades (was 7.2): a wider rotor disc reads bigger in frame.
+    const blade = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.07, 8.6, 1, 0.03), bladeMat);
     if (i === 1) blade.rotation.y = Math.PI / 2;
     mainRotor.add(blade);
   }
@@ -186,8 +202,10 @@ export function buildHelicopter() {
       leg.position.set(s, -1.0, sz); heli.add(leg);
     }
   }
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(4.2, 16, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+  // spotlight cone: wider + more opaque (was r4.2 / 0.22) so the beam is
+  // unmistakable in the chase frame.
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(5.0, 16, 20, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
   cone.position.set(0, -9, 1.2); cone.rotation.x = Math.PI; heli.add(cone);
   const spot = new THREE.SpotLight(0xfff2b0, 60, 60, 0.35, 0.5, 1.2);
   spot.position.set(0, -1, 1.2);
