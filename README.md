@@ -35,11 +35,12 @@ npx serve game
 | E | Enter / exit a car (carjack a traffic car to raise wanted) |
 | F | Carjack the nearest car |
 | Space / Click | Shoot (on foot, or from the car window) |
-| Q or 1–4 | Weapon wheel / pick Fists, P9, SMG, Rifle |
+| Q or 1–7 | Weapon wheel / pick Fists, P9, SMG, Rifle, Bat, Shotgun, Sniper |
 | R | Cycle radio station (3 synth stations, WebAudio) |
 | G | Garage upgrades (engine, armor, paint) |
 | P | Save game (auto-saves after every mission) |
-| M | Mute |
+| M | Pause map |
+| N | Mute |
 | Esc | Pause |
 
 ## The city
@@ -55,9 +56,9 @@ nightlife), **Palm Heights** (hills and villas), **Cinder Docks**
   getaway, helicopter escape, three drops, and the Ember Crown finale.
 - **Wanted 1–5** — police chase you, set **roadblocks at 3 stars**,
   and send the **Air One helicopter with a spotlight at 4 stars**.
-- **Traffic and pedestrians** — 11 traffic cars and 16 pedestrians
-  living their own routes; pedestrians scatter when shots are fired.
-- **Combat** — four weapons on a wheel, gang shootouts, tracers and
+- **Traffic and pedestrians** — 22 traffic cars and 60 pedestrians
+  living their own routes; pedestrians stay on the sidewalks.
+- **Combat** — seven weapons on a wheel, gang shootouts, tracers and
   muzzle flash.
 - **Respect ranks** — Street Rat, Hustler, Wheelman, Enforcer,
   Kingpin, Ember King. Missions and clean getaways raise it.
@@ -75,7 +76,7 @@ nightlife), **Palm Heights** (hills and villas), **Cinder Docks**
   `vehicles`, `people`, `missions`, `combat`, `save`, `hud`,
   `shots`, `main`.
 - Screenshots in `screenshots/` are real renders of this code:
-  cover (chase with police), drive, chase, and mission.
+  cover (aerial city), drive, chase, and mission.
 
 ## License
 
