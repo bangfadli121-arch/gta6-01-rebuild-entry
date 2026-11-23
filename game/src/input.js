@@ -1,72 +1,33 @@
-// EMBER BAY — Heat Line: input.js
-// One job: keyboard and mouse state, with edge-triggered "pressed" keys
-// the game loop consumes once per frame.
-EB.input = (function () {
-  var keys = {};       // code -> held
-  var pressed = {};    // code -> pressed since last frame (edge)
-  var mouseDX = 0, mouseDY = 0, dragging = false, lastX = 0, lastY = 0;
-  var mouseDown = false, mouseClicked = false;
+// EMBER BAY — input: keyboard + mouse drag state, edge-triggered presses.
+(function () {
+  var EB = window.EB || (window.EB = {});
+  var keys = {}, pressed = {};
+  var drag = { active: false, dx: 0, dy: 0, lastX: 0, lastY: 0 };
+  var mouse = { down: false, x: 0, y: 0, clicked: false };
 
-  function onKeyDown(e) {
-    if (e.repeat) return;
+  window.addEventListener("keydown", function (e) {
+    if (!keys[e.code]) pressed[e.code] = true;
     keys[e.code] = true;
-    pressed[e.code] = true;
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"].indexOf(e.code) >= 0) {
-      e.preventDefault();
-    }
-    EB.audio.unlock();
-  }
-  function onKeyUp(e) { keys[e.code] = false; }
+    if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) e.preventDefault();
+  });
+  window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+  window.addEventListener("blur", function () { keys = {}; drag.active = false; });
 
-  function onMouseDown(e) {
-    mouseDown = true; mouseClicked = true; dragging = true;
-    lastX = e.clientX; lastY = e.clientY;
-    EB.audio.unlock();
+  var canvas = null;
+  function bind(el) {
+    canvas = el;
+    el.addEventListener("mousedown", function (e) { mouse.down = true; mouse.x = e.clientX; mouse.y = e.clientY; drag.active = true; drag.lastX = e.clientX; drag.lastY = e.clientY; drag.dx = 0; drag.dy = 0; });
+    window.addEventListener("mouseup", function (e) { if (mouse.down) mouse.clicked = true; mouse.down = false; drag.active = false; });
+    window.addEventListener("mousemove", function (e) {
+      if (drag.active) { drag.dx += e.clientX - drag.lastX; drag.dy += e.clientY - drag.lastY; drag.lastX = e.clientX; drag.lastY = e.clientY; }
+    });
   }
-  function onMouseMove(e) {
-    if (!dragging) return;
-    mouseDX += e.clientX - lastX; mouseDY += e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-  }
-  function onMouseUp() { mouseDown = false; dragging = false; }
 
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
-  window.addEventListener("mousedown", onMouseDown);
-  window.addEventListener("mousemove", onMouseMove);
-  window.addEventListener("mouseup", onMouseUp);
-  window.addEventListener("blur", function () { keys = {}; dragging = false; });
+  function down(code) { return !!keys[code]; }
+  function wasPressed(code) { return !!pressed[code]; }
+  function endFrame() { pressed = {}; drag.dx = 0; drag.dy = 0; mouse.clicked = false; }
 
-  return {
-    down: function (code) { return !!keys[code]; },
-    // True once, the frame the key went down. Consumed on read.
-    pressed: function (code) {
-      var p = !!pressed[code];
-      if (p) pressed[code] = false;
-      return p;
-    },
-    anyPressed: function (codes) {
-      for (var i = 0; i < codes.length; i++) if (this.pressed(codes[i])) return codes[i];
-      return null;
-    },
-    // WASD + arrows as a -1..1 pair, camera-relative handled by caller.
-    moveAxes: function () {
-      var x = 0, y = 0;
-      if (keys["KeyA"] || keys["ArrowLeft"]) x -= 1;
-      if (keys["KeyD"] || keys["ArrowRight"]) x += 1;
-      if (keys["KeyW"] || keys["ArrowUp"]) y += 1;
-      if (keys["KeyS"] || keys["ArrowDown"]) y -= 1;
-      return { x: x, y: y };
-    },
-    mouseDelta: function () {
-      var d = { x: mouseDX, y: mouseDY };
-      mouseDX = 0; mouseDY = 0;
-      return d;
-    },
-    clicked: function () {
-      var c = mouseClicked; mouseClicked = false; return c;
-    },
-    isMouseDown: function () { return mouseDown; },
-    endFrame: function () { pressed = {}; },
-  };
+  EB.input = { bind: bind, down: down, wasPressed: wasPressed, endFrame: endFrame, drag: drag, mouse: mouse,
+    axis: function () { return (down("KeyD") || down("ArrowRight") ? 1 : 0) - (down("KeyA") || down("ArrowLeft") ? 1 : 0); },
+    throttle: function () { return (down("KeyW") || down("ArrowUp") ? 1 : 0) - (down("KeyS") || down("ArrowDown") ? 1 : 0); } };
 })();
