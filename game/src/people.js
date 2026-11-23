@@ -1,131 +1,137 @@
-// EMBER BAY — people: pedestrians who live on the sidewalks.
-// They travel along sidewalk lanes (a road line + side offset), so by
-// construction they are never on asphalt. Gunshots or near-misses make
-// them scatter; clampToSidewalk is the safety net.
-(function () {
-  var EB = window.EB || (window.EB = {});
-  var scene = null, peds = [];
-  var SHIRTS = [0xff6b6b, 0xffd75e, 0x2ec4b6, 0x7ec8e3, 0xffb3a7, 0x7ed957, 0xf2f2f2, 0x8a2be2, 0xff9a3c, 0x18b58a];
-  var SKINS = [0xe8b98a, 0xc98a5e, 0x8a5a32, 0xf2c9a0];
+// EMBER BAY people — round 5, written from zero.
+// Hero Kade Venn: jacket, hair, pants, shoes, walk swing — not a plain block.
+// Pedestrians: varied colors/clothes, walk on sidewalks ONLY (sidewalk clamp).
+const THREE = window.THREE;
+import { clampToSidewalk, onRoad, GRID } from "./config.js";
 
-  function makePedMesh(shirt, skin) {
-    var g = new THREE.Group();
-    var legMat = new THREE.MeshLambertMaterial({ color: 0x2a2a33 });
-    var shirtMat = new THREE.MeshLambertMaterial({ color: shirt });
-    var skinMat = new THREE.MeshLambertMaterial({ color: skin });
-    var legL = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.55, 0.2), legMat);
-    legL.position.set(0, 0.28, 0.11); g.add(legL);
-    var legR = legL.clone(); legR.position.z = -0.11; g.add(legR);
-    var torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.55), shirtMat);
-    torso.position.y = 0.86; g.add(torso);
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 8), skinMat);
-    head.position.y = 1.38; g.add(head);
-    g.userData.legL = legL; g.userData.legR = legR;
-    return g;
+function limbMat(color) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+}
+function capsule(r, len, mat) {
+  return new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), mat);
+}
+
+// Hero: dark teal jacket, black hair, dark jeans, white sneakers.
+export function makeHero() {
+  const g = new THREE.Group();
+  const skin = limbMat(0xe8b88a), jacket = limbMat(0x1e5a6a), jeans = limbMat(0x2c3a5a),
+        hairM = limbMat(0x1a1210), shoeM = limbMat(0xf5f5f0);
+  // torso (jacket) — capsule, slightly tapered look via scale
+  const torso = capsule(0.26, 0.42, jacket); torso.position.y = 1.12; torso.scale.set(1.15, 1, 0.8); g.add(torso);
+  // jacket collar + zipper stripe
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.05, 8, 14), limbMat(0x143e4c));
+  collar.rotation.x = Math.PI / 2; collar.position.y = 1.42; g.add(collar);
+  const zip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.03), limbMat(0xd8d8d8));
+  zip.position.set(0, 1.12, 0.24); g.add(zip);
+  // head + hair
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 14, 12), skin);
+  head.position.y = 1.62; g.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), hairM);
+  hair.position.y = 1.66; hair.scale.set(1, 0.9, 1); g.add(hair);
+  // arms (capsules, pivot at shoulder)
+  const arms = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(side * 0.32, 1.38, 0);
+    const arm = capsule(0.09, 0.42, jacket); arm.position.y = -0.28; pivot.add(arm);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), skin);
+    hand.position.y = -0.56; pivot.add(hand);
+    g.add(pivot); arms.push(pivot);
   }
+  // legs (pivot at hip) + shoes
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(side * 0.13, 0.82, 0);
+    const leg = capsule(0.11, 0.5, jeans); leg.position.y = -0.34; pivot.add(leg);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.3), shoeM);
+    shoe.position.set(0, -0.68, 0.05); pivot.add(shoe);
+    g.add(pivot); legs.push(pivot);
+  }
+  g.userData = { arms, legs, walkPhase: 0 };
+  return g;
+}
+export function animateWalk(person, speed, dt) {
+  const u = person.userData;
+  u.walkPhase += dt * (4 + Math.abs(speed) * 1.4);
+  const s = Math.min(1, Math.abs(speed) / 3);
+  const swing = Math.sin(u.walkPhase) * 0.55 * s;
+  u.legs[0].rotation.x = swing; u.legs[1].rotation.x = -swing;
+  u.arms[0].rotation.x = -swing * 0.8; u.arms[1].rotation.x = swing * 0.8;
+  person.position.y = Math.abs(Math.sin(u.walkPhase)) * 0.04 * s;
+}
 
-  function spawnPed() {
-    var lines = [];
-    for (var v = -200; v <= 200; v += 40) lines.push(v);
-    var horizontal = Math.random() < 0.5;
-    var L = lines[Math.floor(Math.random() * lines.length)];
-    var side = Math.random() < 0.5 ? -1 : 1;
-    var off = 6.5 + Math.random() * 1.5;
-    // never use the outer sidewalk of an edge road (it is beach, not city)
-    if (L === 200) side = -1;
-    if (L === -200) side = 1;
-    // spawn mid-block: at least 9 m from any crossing road, never on asphalt
-    var along = 0;
-    for (var tries = 0; tries < 20; tries++) {
-      along = -195 + Math.random() * 390;
-      var nl = Math.round((along + 200) / 40) * 40 - 200;
-      if (Math.abs(along - nl) >= 9) break;
+const PED_SHIRTS = [0xe85a5a, 0x5a8fd6, 0x7ed957, 0xffb347, 0xb06ad6, 0x2ec4b6, 0xf5f5f0, 0xff7ad9];
+const PED_PANTS = [0x2c3a5a, 0x3a3a3a, 0x5a4632, 0x1e5a6a];
+const PED_SKIN = [0xe8b88a, 0xc98a5a, 0x8a5a3a, 0xf0c8a0];
+
+export function makePedestrian(rnd) {
+  const g = new THREE.Group();
+  const shirt = limbMat(PED_SHIRTS[Math.floor(rnd() * PED_SHIRTS.length)]);
+  const pants = limbMat(PED_PANTS[Math.floor(rnd() * PED_PANTS.length)]);
+  const skin = limbMat(PED_SKIN[Math.floor(rnd() * PED_SKIN.length)]);
+  const torso = capsule(0.24, 0.4, shirt); torso.position.y = 1.08; torso.scale.set(1.1, 1, 0.8); g.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), skin);
+  head.position.y = 1.58; g.add(head);
+  if (rnd() < 0.35) { // hat
+    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.1, 12),
+      limbMat([0xffb347, 0x2ec4b6, 0xe85a5a][Math.floor(rnd() * 3)]));
+    hat.position.y = 1.76; g.add(hat);
+  } else { // hair cap
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.21, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      limbMat(0x1a1210));
+    hair.position.y = 1.62; g.add(hair);
+  }
+  const arms = [], legs = [];
+  for (const side of [-1, 1]) {
+    const ap = new THREE.Group(); ap.position.set(side * 0.3, 1.34, 0);
+    const arm = capsule(0.08, 0.4, shirt); arm.position.y = -0.26; ap.add(arm);
+    g.add(ap); arms.push(ap);
+    const lp = new THREE.Group(); lp.position.set(side * 0.12, 0.8, 0);
+    const leg = capsule(0.1, 0.48, pants); leg.position.y = -0.32; lp.add(leg);
+    g.add(lp); legs.push(lp);
+  }
+  g.userData = { arms, legs, walkPhase: rnd() * 6.28 };
+  return g;
+}
+
+export function makePedestrians(scene, count = 60) {
+  const rnd = (() => { let t = 987654; return () => { t += 0x6D2B79F5; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; })();
+  const peds = [];
+  for (let i = 0; i < count; i++) {
+    const mesh = makePedestrian(rnd);
+    // spawn on a sidewalk: pick a street, offset onto its sidewalk band
+    const street = GRID.streets[Math.floor(rnd() * GRID.streets.length)];
+    const along = (rnd() - 0.5) * 380;
+    const side = rnd() < 0.5 ? -1 : 1;
+    const p = { x: 0, z: 0 };
+    if (rnd() < 0.5) { p.x = street + side * 6.8; p.z = along; }
+    else { p.x = along; p.z = street + side * 6.8; }
+    clampToSidewalk(p);
+    mesh.position.set(p.x, 0, p.z);
+    mesh.rotation.y = rnd() * Math.PI * 2;
+    scene.add(mesh);
+    peds.push({
+      mesh, heading: rnd() * Math.PI * 2, speed: 0.8 + rnd() * 0.9,
+      turnTimer: 2 + rnd() * 4,
+    });
+  }
+  return peds;
+}
+export function updatePedestrians(peds, dt) {
+  for (const p of peds) {
+    p.turnTimer -= dt;
+    if (p.turnTimer <= 0) {
+      p.turnTimer = 2 + Math.random() * 4;
+      // turn onto the other axis or reverse — always along a sidewalk
+      p.heading += (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) * (Math.random() < 0.7 ? 1 : 2);
     }
-    var dir = Math.random() < 0.5 ? 1 : -1;
-    var shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)];
-    var skin = SKINS[Math.floor(Math.random() * SKINS.length)];
-    var g = makePedMesh(shirt, skin);
-    scene.add(g);
-    var ped = {
-      group: g, axis: horizontal ? "x" : "z", line: L, side: side, off: off,
-      along: along, dir: dir, speed: 1.1 + Math.random() * 0.7,
-      heading: horizontal ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? -Math.PI / 2 : Math.PI / 2),
-      flee: 0, swing: Math.random() * 6.28, x: 0, z: 0
-    };
-    peds.push(ped);
-    return ped;
+    const nx = p.mesh.position.x + Math.sin(p.heading) * p.speed * dt;
+    const nz = p.mesh.position.z + Math.cos(p.heading) * p.speed * dt;
+    if (onRoad(nx, nz) || Math.abs(nx) > 198 || Math.abs(nz) > 198) {
+      p.heading += Math.PI / 2; // turn away from road / edge
+      continue;
+    }
+    p.mesh.position.x = nx; p.mesh.position.z = nz;
+    p.mesh.rotation.y = p.heading;
+    animateWalk(p.mesh, p.speed, dt);
   }
-
-  function syncPed(ped) {
-    if (ped.axis === "x") { ped.x = ped.along; ped.z = ped.line + ped.side * ped.off; }
-    else { ped.x = ped.line + ped.side * ped.off; ped.z = ped.along; }
-    ped.group.position.set(ped.x, 0, ped.z);
-    ped.group.rotation.y = ped.heading;
-  }
-
-  function update(dt, time) {
-    peds.forEach(function (ped) {
-      var sp = ped.speed * (ped.flee > 0 ? 2.6 : 1);
-      if (ped.flee > 0) ped.flee -= dt;
-      ped.along += ped.dir * sp * dt;
-      if (ped.along > 200) { ped.along = 200; ped.dir = -1; }
-      if (ped.along < -200) { ped.along = -200; ped.dir = 1; }
-      // at an intersection, ALWAYS turn onto the crossing road's near
-      // sidewalk before the asphalt — never walk across a road.
-      var nearest = Math.round((ped.along + 200) / 40) * 40 - 200;
-      var distToLine = ped.along - nearest;
-      var approaching = (ped.dir > 0 && distToLine < 0) || (ped.dir < 0 && distToLine > 0);
-      if (approaching && Math.abs(distToLine) < 9) {
-        var off = 6.5 + Math.random() * 1.5;
-        var oldSide = ped.side;
-        if (ped.axis === "x") {
-          ped.axis = "z"; ped.line = nearest; ped.side = ped.dir > 0 ? -1 : 1; ped.off = off;
-          if (nearest === 200) ped.side = -1;
-          if (nearest === -200) ped.side = 1;
-          ped.dir = oldSide; // walk away from the road just left, never turn back at once
-          ped.heading = ped.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-          ped.along = ped.z;
-        } else {
-          ped.axis = "x"; ped.line = nearest; ped.side = ped.dir > 0 ? -1 : 1; ped.off = off;
-          if (nearest === 200) ped.side = -1;
-          if (nearest === -200) ped.side = 1;
-          ped.dir = oldSide;
-          ped.heading = ped.dir > 0 ? 0 : Math.PI;
-          ped.along = ped.x;
-        }
-      }
-      // keep heading in sync with axis/dir
-      ped.heading = ped.axis === "x" ? (ped.dir > 0 ? 0 : Math.PI) : (ped.dir > 0 ? -Math.PI / 2 : Math.PI / 2);
-      syncPed(ped);
-      // walk cycle
-      ped.swing += dt * (ped.flee > 0 ? 11 : 6);
-      var s = Math.sin(ped.swing) * 0.5;
-      ped.group.userData.legL.rotation.x = s;
-      ped.group.userData.legR.rotation.x = -s;
-      ped.group.position.y = Math.abs(Math.sin(ped.swing)) * 0.05;
-    });
-  }
-
-  function flee(x, z, radius) {
-    peds.forEach(function (ped) {
-      var d = Math.hypot(ped.x - x, ped.z - z);
-      if (d < radius) {
-        ped.flee = 2.5 + Math.random() * 2;
-        // run away from the scare
-        if (ped.axis === "x") ped.dir = ped.x >= x ? 1 : -1;
-        else ped.dir = ped.z >= z ? 1 : -1;
-      }
-    });
-  }
-
-  function build(sc) {
-    scene = sc;
-    for (var i = 0; i < EB.config.PED_COUNT; i++) { var p = spawnPed(); syncPed(p); }
-  }
-
-  EB.people = {
-    build: build, update: update, flee: flee,
-    list: function () { return peds; },
-    count: function () { return peds.length; }
-  };
-})();
+}
