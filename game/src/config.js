@@ -56,7 +56,8 @@ export const CFG = {
     { at: 800, name: "KINGPIN" },
     { at: 1400, name: "EMBER KING" },
   ],
-  trafficCount: 22,
-  pedCount: 60,
+  trafficCount: 36, // was 22 — the streets read empty in the drive frame
+  pedCount: 90,      // was 60 — more walkers on the sidewalks
+  patrolCount: 2,    // police cruisers always on the beat, even at wanted 0
   saveKey: "emberbay-save-v6",
 };
