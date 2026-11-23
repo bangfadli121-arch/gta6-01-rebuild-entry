@@ -1,57 +1,45 @@
-// EMBER BAY screenshot staging — round 5, written from zero.
-// ?shot=cover|drive|chase|mission positions the world + camera for each render.
-// Cover matches v11d's composition; chase keeps the billboard clear of the HUD.
-export function stageShot(name, g) {
-  const S = g.state;
+// shots.js — staged screenshot setups (?shot=cover|drive|chase|mission).
+// Each stage positions the player/camera to match the v11d compositions.
+export function stageShot(name, api) {
+  const s = api.state;
   if (name === "cover") {
-    // aerial three-quarter: city dense left, beach + sea + sailboats right,
-    // volcano + sunset behind, billboard readable, hero car on the beach road.
-    g.setCar(180, -20, 0, true);
-    S.mission = 3; S.cash = 250; S.respect = 0; S.wanted = 3; S.hp = 100;
-    g.missions.setMission(3);
-    g.cameraMode = "cover";
-    g.coverCam = { pos: [290, 135, 240], look: [-20, 0, -10] };
-    g.combat.setWanted(0);
-    return;
-  }
-  if (name === "drive") {
-    // beach road, hero Skyline big + close, billboard ahead (not blocking HUD),
-    // beach + palms on the right, city on the left.
-    g.setCar(180, 80, Math.PI, true);
-    S.mission = 2; S.cash = 250; S.wanted = 0; S.hp = 100;
-    g.missions.setMission(2);
-    g.cameraMode = "chase";
-    g.cameraDist = 8.5; g.cameraHeight = 3.4; g.cameraFov = 55;
-    g.combat.setWanted(0);
-    return;
-  }
-  if (name === "chase") {
-    // getaway: police behind, helicopter close + high with the spotlight cone
-    // clearly visible, billboard off to the left so it never covers the HUD.
-    g.setCar(20, -60, Math.PI, true);
-    S.mission = 5; S.cash = 250; S.wanted = 4; S.hp = 100;
-    g.missions.setMission(5);
-    g.combat.setWanted(4);
-    g.cameraMode = "chase";
-    g.cameraDist = 8.5; g.cameraHeight = 3.4; g.cameraFov = 55;
-    // heli far ahead + low so it stays inside the frame with its cone
-    const h = g.combat.heliMesh;
-    if (h) { h.position.set(30, 8.5, -80); }
-    // police interceptors close ahead, left + right of the road
-    const pm = g.combat.policeMeshes;
-    if (pm[0]) { pm[0].position.set(14, 0, -78); pm[0].rotation.y = Math.PI; }
-    if (pm[1]) { pm[1].position.set(27, 0, -72); pm[1].rotation.y = Math.PI; }
-    return;
-  }
-  if (name === "mission") {
-    // on foot at the Dockside crates: colorful towers + palms around, marker
-    // beam + diamond + ring clearly visible, no dominant grey wall.
-    S.mission = 4; S.cash = 250; S.wanted = 2; S.hp = 100;
-    g.setPlayer(-140, -100, Math.PI);
-    g.missions.setMission(4);
-    g.combat.setWanted(0);
-    g.cameraMode = "follow";
-    g.cameraDist = 9; g.cameraHeight = 3.5;
-    return;
+    // aerial three-quarter over the coastal road, beach + sea on the right.
+    // Hero Skyline ON the coastal road (x=168), well south of the billboard
+    // so it stays visible (it drives north ~35m during the settle and must
+    // not end up hidden behind the billboard at z=84).
+    api.setPlayer(168, 140, Math.PI, true);
+    api.setMission(3);
+    api.setWanted(3);
+    api.setCamera("cover");
+    api.setSpeed(55);
+  } else if (name === "drive") {
+    // in the Skyline on the coastal road, beach on the right, billboard ahead.
+    // Start well south (z=185) so after the ~35m settle the car is ~65m
+    // from the billboard — fully in frame, never cut off at the top.
+    api.setPlayer(168, 185, Math.PI, true);
+    api.setMission(2);
+    api.setWanted(0);
+    api.setCamera("chase");
+    api.setSpeed(55);
+  } else if (name === "chase") {
+    // getaway: wanted 4, heli + police visible, gantry billboard ahead.
+    // Start at z=170 so after the settle the billboard (~50m ahead) reads
+    // fully in frame like the v11d chase, instead of sitting behind the car.
+    api.setPlayer(168, 170, Math.PI, true);
+    api.setMission(5);
+    api.setWanted(4);
+    api.setCamera("chase");
+    api.setSpeed(64);
+    api.placeHeliForShot();
+  } else if (name === "mission") {
+    // on foot at the Dockside marker, crates + buildings around.
+    // Hero faces SOUTH (heading 0) toward the crates at (-126,-84); the
+    // foot camera sits north of him so the crates are in frame ahead and
+    // the volcano (north-west) stays BEHIND the camera, not looming over it.
+    api.setPlayer(-126, -100, 0, false);
+    api.setMission(4);
+    api.setWanted(2);
+    api.setCamera("foot");
+    api.setSpeed(0);
   }
 }
